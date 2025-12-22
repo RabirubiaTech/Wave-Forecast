@@ -20,9 +20,9 @@ jobs:
 
       - name: Download logo
         run: |
-          curl -o logo.png "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png"
+          curl -L -o logo.png "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png"
 
-      - name: Download random marine background
+      - name: Download marine background (safe)
         run: |
           BG_LIST=(
             "https://images.unsplash.com/photo-1507525428034-b723cf961d3e"
@@ -31,9 +31,15 @@ jobs:
             "https://images.unsplash.com/photo-1493558103817-58b2924bce98"
           )
           URL=${BG_LIST[$RANDOM % ${#BG_LIST[@]}]}
-          curl -L "$URL" -o background.jpg || cp fallback.jpg background.jpg
+          curl -L "$URL" -o background.jpg
 
-      - name: Fetch NOAA Marine Forecast and generate card
+          # Validate background
+          if [ ! -s background.jpg ]; then
+            echo "Background download failed, using fallback"
+            convert -size 800x800 xc:"#004488" background.jpg
+          fi
+
+      - name: Fetch NOAA Marine Forecast and prepare text
         run: |
           DATA=$(curl -s "https://api.weather.gov/gridpoints/SJU/103,45/forecast")
 
@@ -42,11 +48,23 @@ jobs:
 
           # Fallback if NOAA fails
           if [ -z "$PERIODS" ]; then
-            PERIODS="Forecast unavailable at this time."
+            echo "Forecast unavailable at this time." > forecast.txt
+          else
+            echo "$PERIODS" | fold -s -w 40 > forecast.txt
           fi
 
-          # Wrap text to avoid ImageMagick crash
-          echo "$PERIODS" | fold -s -w 40 > forecast.txt
+          # Validate forecast
+          if [ ! -s forecast.txt ]; then
+            echo "Forecast unavailable" > forecast.txt
+          fi
+
+      - name: Generate Wave Forecast Card
+        run: |
+          # Validate logo
+          if [ ! -s logo.png ]; then
+            echo "Logo missing — creating placeholder"
+            convert -size 120x120 xc:white logo.png
+          fi
 
           # Generate card
           convert background.jpg -resize 800x800^ -gravity center -crop 800x800+0+0 +repage \

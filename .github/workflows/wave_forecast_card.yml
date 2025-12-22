@@ -1,22 +1,19 @@
-name: Wave Forecast Card Generator (GitHub Pages)
+name: Wave Forecast Card Generator
 
 on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 jobs:
-  build:
+  generate-wave-card:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -115,23 +112,16 @@ jobs:
 
           draw.text((40, 1250), disclaimer, fill=white, font=font_disclaimer)
 
-          os.makedirs("public", exist_ok=True)
-          bg.save("public/wave_forecast_card.png", optimize=True)
+          os.makedirs("generated", exist_ok=True)
+          bg.save("generated/wave_forecast_card.png", optimize=True)
           EOF
 
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
+      - name: Commit updated card
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+          git add generated/wave_forecast_card.png
+          git commit -m "Auto-update wave forecast card" || echo "No changes to commit"
 
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          git push origin main

@@ -18,11 +18,14 @@ jobs:
       - name: Install ImageMagick and jq
         run: sudo apt-get update && sudo apt-get install -y imagemagick jq
 
-      - name: Download logo
+      - name: Download logo (validated)
         run: |
           curl -L -o logo.png "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png"
+          if [ ! -s logo.png ]; then
+            convert -size 120x120 xc:white logo.png
+          fi
 
-      - name: Download marine background (safe)
+      - name: Download marine background (validated)
         run: |
           BG_LIST=(
             "https://images.unsplash.com/photo-1507525428034-b723cf961d3e"
@@ -33,24 +36,25 @@ jobs:
           URL=${BG_LIST[$RANDOM % ${#BG_LIST[@]}]}
           curl -L "$URL" -o background.jpg
 
-          # Validate background
+          # If background fails, create a solid fallback
           if [ ! -s background.jpg ]; then
-            echo "Background download failed, using fallback"
             convert -size 800x800 xc:"#004488" background.jpg
           fi
 
-      - name: Fetch NOAA Marine Forecast and prepare text
+      - name: Fetch NOAA Marine Forecast and prepare text (validated)
         run: |
           DATA=$(curl -s "https://api.weather.gov/gridpoints/SJU/103,45/forecast")
 
           # Extract 7 periods safely
           PERIODS=$(echo "$DATA" | jq -r '.properties.periods[0:7][]? | "\(.name): \(.detailedForecast)"')
 
-          # Fallback if NOAA fails
+          # Fallback if NOAA fails or jq fails
           if [ -z "$PERIODS" ]; then
             echo "Forecast unavailable at this time." > forecast.txt
           else
-            echo "$PERIODS" | fold -s -w 40 > forecast.txt
+            # Remove quotes and special chars that break ImageMagick
+            CLEAN=$(echo "$PERIODS" | sed 's/["'\'']//g')
+            echo "$CLEAN" | fold -s -w 40 > forecast.txt
           fi
 
           # Validate forecast
@@ -58,15 +62,13 @@ jobs:
             echo "Forecast unavailable" > forecast.txt
           fi
 
-      - name: Generate Wave Forecast Card
+      - name: Generate Wave Forecast Card (bulletproof)
         run: |
-          # Validate logo
-          if [ ! -s logo.png ]; then
-            echo "Logo missing — creating placeholder"
-            convert -size 120x120 xc:white logo.png
-          fi
+          # Final validation before convert
+          [ -s background.jpg ] || convert -size 800x800 xc:"#004488" background.jpg
+          [ -s logo.png ] || convert -size 120x120 xc:white logo.png
+          [ -s forecast.txt ] || echo "Forecast unavailable" > forecast.txt
 
-          # Generate card
           convert background.jpg -resize 800x800^ -gravity center -crop 800x800+0+0 +repage \
             -fill 'rgba(0,0,0,0.35)' -draw "rectangle 0,0 800,800" \
             \( logo.png -resize 120x120 \) -gravity NorthWest -geometry +40+40 -composite \

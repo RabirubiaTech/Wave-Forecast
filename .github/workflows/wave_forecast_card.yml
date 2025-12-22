@@ -26,9 +26,8 @@ jobs:
 
       - name: Generate Wave Forecast Card
         run: |
-          set -e
           python3 << 'EOF'
-          import requests, textwrap, traceback
+          import requests, textwrap, traceback, re
           from PIL import Image, ImageDraw, ImageFont
           import io, os
 
@@ -51,21 +50,29 @@ jobs:
               print("NOAA ERROR:", e)
               raw_text = ""
 
-          # Clean and wrap text
+          # FULL SANITATION — THIS IS THE FIX
+          def sanitize(text):
+              # Remove control characters
+              text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
+              # Remove non-ASCII characters
+              text = text.encode("ascii", "ignore").decode()
+              # Remove double spaces
+              text = re.sub(r"\s+", " ", text)
+              return text.strip()
+
           if not raw_text.strip():
               forecast_text = "Forecast unavailable at this time."
           else:
-              cleaned = raw_text.replace("\r", "")
-              cleaned = cleaned.replace("“", "\"").replace("”", "\"").replace("’", "'")
+              cleaned = sanitize(raw_text)
 
-              # Remove header lines (first 5 lines are metadata)
+              # Remove NOAA header (first 5–10 lines)
               lines = cleaned.splitlines()
-              if len(lines) > 5:
-                  lines = lines[5:]
+              if len(lines) > 8:
+                  lines = lines[8:]
 
-              cleaned = "\n".join(lines)
-              cleaned = cleaned.strip()
+              cleaned = " ".join(lines)
 
+              # Wrap safely
               forecast_text = "\n".join(textwrap.wrap(cleaned, width=42))
 
           # Download background
@@ -137,7 +144,6 @@ jobs:
           output_path = "wave_card.png"
           bg.convert("RGB").save(output_path, optimize=True)
 
-          # Confirm file exists
           if not os.path.exists(output_path):
               raise Exception("wave_card.png was NOT created!")
 

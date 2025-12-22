@@ -31,26 +31,36 @@ jobs:
           from PIL import Image, ImageDraw, ImageFont
           import io
 
-          # Fetch NOAA forecast
-          url = "https://api.weather.gov/gridpoints/SJU/103,45/forecast"
+          # Fetch NOAA Marine Forecast (MIM product)
           try:
-              data = requests.get(url, timeout=20).json()
-              periods = data.get("properties", {}).get("periods", [])[:7]
-          except:
-              periods = []
+              product_list = requests.get(
+                  "https://api.weather.gov/products/types/MIM/locations/SJU",
+                  timeout=20
+              ).json()
 
-          # Build forecast text
-          if not periods:
+              product_id = product_list["products"][0]["id"]
+
+              product = requests.get(
+                  f"https://api.weather.gov/products/{product_id}",
+                  timeout=20
+              ).json()
+
+              raw_text = product.get("productText", "")
+          except:
+              raw_text = ""
+
+          # Clean and wrap text
+          if not raw_text.strip():
               forecast_text = "Forecast unavailable at this time."
           else:
-              lines = []
-              for p in periods:
-                  name = p.get("name", "Day")
-                  desc = p.get("detailedForecast", "")
-                  desc = desc.replace("“", "\"").replace("”", "\"").replace("’", "'")
-                  wrapped = textwrap.fill(f"{name}: {desc}", width=42)
-                  lines.append(wrapped)
-              forecast_text = "\n\n".join(lines)
+              cleaned = raw_text.replace("\r", "")
+              cleaned = cleaned.replace("“", "\"").replace("”", "\"").replace("’", "'")
+
+              # Remove header lines (first 5 lines are metadata)
+              cleaned_lines = cleaned.splitlines()[5:]
+              cleaned = "\n".join(cleaned_lines)
+
+              forecast_text = "\n".join(textwrap.wrap(cleaned, width=42))
 
           # Download background
           try:
@@ -98,7 +108,7 @@ jobs:
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
           draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
 
-          # Forecast text (LEFT aligned, fixed Y)
+          # Forecast text
           draw.multiline_text(
               (80, 300),
               forecast_text,

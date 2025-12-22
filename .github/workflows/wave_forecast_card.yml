@@ -2,7 +2,7 @@ name: Wave Forecast Card Generator
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # Every 6 hours
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 jobs:
@@ -43,32 +43,26 @@ jobs:
         run: |
           python3 << 'EOF'
           import json, random, os
-          from datetime import datetime
           from PIL import Image, ImageDraw, ImageFont
 
-          # Load forecast
           with open("wave_data.json") as f:
               data = json.load(f)
 
-          # Extract periods safely
           periods = []
           try:
-              periods = data["properties"]["periods"][:14]  # 7 days (AM/PM)
+              periods = data["properties"]["periods"][:14]
           except:
               periods = []
 
-          # Build day summaries
           days = {}
           for p in periods:
               name = p["name"].split()[0]
               if name not in days:
                   days[name] = p["detailedForecast"]
 
-          # Ensure at least placeholder text
           if not days:
               days = {"Forecast": "Wave data unavailable at this time."}
 
-          # Background rotation
           backgrounds = [
               "assets/marine_bg1.jpg",
               "assets/marine_bg2.jpg",
@@ -77,51 +71,37 @@ jobs:
               "assets/marine_bg5.jpg"
           ]
 
-          bg_path = None
-          for b in backgrounds:
-              if os.path.exists(b):
-                  bg_path = b
-                  break
+          bg_path = next((b for b in backgrounds if os.path.exists(b)), None)
 
-          # Fallback background
           if not bg_path:
               bg = Image.new("RGB", (1080, 1350), (0, 70, 140))
           else:
               bg = Image.open(bg_path).convert("RGB")
 
           bg = bg.resize((1080, 1350))
-
           draw = ImageDraw.Draw(bg)
 
-          # Fonts
           try:
               font_header = ImageFont.truetype("arial.ttf", 70)
               font_sub = ImageFont.truetype("arial.ttf", 40)
               font_body = ImageFont.truetype("arial.ttf", 32)
               font_disclaimer = ImageFont.truetype("arial.ttf", 24)
           except:
-              font_header = ImageFont.load_default()
-              font_sub = ImageFont.load_default()
-              font_body = ImageFont.load_default()
-              font_disclaimer = ImageFont.load_default()
+              font_header = font_sub = font_body = font_disclaimer = ImageFont.load_default()
 
-          # Brand colors
           brand_blue = (0, 102, 204)
           brand_gold = (255, 204, 0)
           white = (255, 255, 255)
 
-          # Header bar
           draw.rectangle([(0, 0), (1080, 180)], fill=brand_blue)
           draw.text((40, 40), "RabirubiaWeather", fill=white, font=font_header)
           draw.text((40, 130), "7‑Day Wave Forecast • PR & USVI", fill=brand_gold, font=font_sub)
 
-          # Forecast text
           y = 240
           for day, forecast in days.items():
               draw.text((50, y), f"{day}: {forecast}", fill=white, font=font_body)
               y += 120
 
-          # Disclaimer
           disclaimer = (
               "Maps and information intended for informational purposes only! "
               "For Emergency situations and/or decisions, please refer to your "
@@ -130,17 +110,13 @@ jobs:
 
           draw.text((40, 1250), disclaimer, fill=white, font=font_disclaimer)
 
-          # Save output
-          os.makedirs("generated", exist_ok=True)
-          bg.save("generated/wave_forecast_card.png", optimize=True)
+          os.makedirs("output", exist_ok=True)
+          bg.save("output/wave_forecast_card.png", optimize=True)
           EOF
 
-      - name: Commit updated card
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git add generated/wave_forecast_card.png
-          git commit -m "Auto-update wave forecast card" || echo "No changes to commit"
-
-          git push origin main
+      - name: Upload Wave Card Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave-card-latest
+          path: output/wave_forecast_card.png
+          retention-days: 7

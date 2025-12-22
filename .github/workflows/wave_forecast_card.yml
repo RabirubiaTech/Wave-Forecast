@@ -2,7 +2,7 @@ name: Update Wave Forecast Card Image
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:
 
 jobs:
@@ -27,132 +27,155 @@ jobs:
       - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
-          import requests, textwrap, traceback, re
+          import requests, textwrap, re
           from PIL import Image, ImageDraw, ImageFont
-          import io, os
+          import io, os, traceback
 
-          try:
-              # Fetch NOAA Marine Forecast (MIM product)
-              product_list = requests.get(
-                  "https://api.weather.gov/products/types/MIM/locations/SJU",
-                  timeout=20
-              ).json()
+          USER_AGENT = "RabirubiaWeather (contact@rabirubiaweather.example)"  # adjust email if you want
 
-              product_id = product_list["products"][0]["id"]
+          def get_forecast_text():
+              fallback = "Marine forecast temporarily unavailable. Please refer directly to NWS Marine Weather."
+              try:
+                  headers = {"User-Agent": USER_AGENT}
 
-              product = requests.get(
-                  f"https://api.weather.gov/products/{product_id}",
-                  timeout=20
-              ).json()
+                  # 1) Get latest Marine (MIM) product for SJU
+                  r_list = requests.get(
+                      "https://api.weather.gov/products/types/MIM/locations/SJU",
+                      headers=headers,
+                      timeout=20,
+                  )
+                  r_list.raise_for_status()
+                  plist = r_list.json()
+                  products = plist.get("products") or []
+                  if not products:
+                      return fallback
 
-              raw_text = product.get("productText", "")
-          except Exception as e:
-              print("NOAA ERROR:", e)
-              raw_text = ""
+                  pid = products[0].get("id")
+                  if not pid:
+                      return fallback
 
-          # FULL SANITATION — THIS IS THE FIX
-          def sanitize(text):
-              # Remove control characters
-              text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
-              # Remove non-ASCII characters
-              text = text.encode("ascii", "ignore").decode()
-              # Remove double spaces
-              text = re.sub(r"\s+", " ", text)
-              return text.strip()
+                  # 2) Get the product text
+                  r_prod = requests.get(
+                      f"https://api.weather.gov/products/{pid}",
+                      headers=headers,
+                      timeout=20,
+                  )
+                  r_prod.raise_for_status()
+                  prod = r_prod.json()
+                  text = prod.get("productText")
+                  if not text or not isinstance(text, str):
+                      return fallback
 
-          if not raw_text.strip():
-              forecast_text = "Forecast unavailable at this time."
-          else:
-              cleaned = sanitize(raw_text)
+                  # 3) Sanitize: remove control chars, normalize spaces
+                  text = text.replace("\r", "")
+                  text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
+                  text = re.sub(r"\s+", " ", text).strip()
+                  if not text:
+                      return fallback
 
-              # Remove NOAA header (first 5–10 lines)
-              lines = cleaned.splitlines()
-              if len(lines) > 8:
-                  lines = lines[8:]
+                  # 4) Remove leading header-ish chunk (first ~300 chars or until first blank line)
+                  # NOAA products often have headers; this trims them without depending on exact lines.
+                  if len(text) > 300:
+                      text = text[300:]
 
-              cleaned = " ".join(lines)
+                  # 5) Limit length so card stays readable
+                  text = text[:1200]
 
-              # Wrap safely
-              forecast_text = "\n".join(textwrap.wrap(cleaned, width=42))
+                  # 6) Wrap for the card
+                  wrapped = textwrap.fill(text, width=42)
+                  return wrapped or fallback
+              except Exception as e:
+                  print("Forecast error:", e)
+                  traceback.print_exc()
+                  return fallback
 
-          # Download background
-          try:
-              bg_data = requests.get(
-                  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
-                  timeout=20
-              ).content
-              bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
-          except:
-              bg = Image.new("RGB", (800, 800), "#004488")
+          def get_background():
+              try:
+                  bg_url = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e"
+                  data = requests.get(bg_url, timeout=20).content
+                  img = Image.open(io.BytesIO(data)).convert("RGB")
+              except Exception as e:
+                  print("Background error:", e)
+                  img = Image.new("RGB", (800, 800), "#004488")
+              return img.resize((800, 800))
 
-          bg = bg.resize((800, 800))
+          def get_logo():
+              try:
+                  logo_url = (
+                      "https://static.wixstatic.com/media/"
+                      "80c250_b1146919dfe046429a96648c59e2c413~mv2.png/"
+                      "v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,"
+                      "enc_avif,quality_auto/RWRoundLogoTransp.png"
+                  )
+                  data = requests.get(logo_url, timeout=20).content
+                  logo = Image.open(io.BytesIO(data)).convert("RGBA")
+              except Exception as e:
+                  print("Logo error:", e)
+                  logo = Image.new("RGBA", (120, 120), "white")
+              return logo.resize((120, 120))
 
-          # Download logo
-          try:
-              logo_data = requests.get(
-                  "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png",
-                  timeout=20
-              ).content
-              logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
-          except:
-              logo = Image.new("RGBA", (120, 120), "white")
+          def create_card():
+              forecast_text = get_forecast_text()
+              bg = get_background()
 
-          logo = logo.resize((120, 120))
+              # Dark overlay
+              overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
+              base = Image.alpha_composite(bg.convert("RGBA"), overlay)
+              draw = ImageDraw.Draw(base)
 
-          # Draw overlay
-          overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
-          bg = Image.alpha_composite(bg.convert("RGBA"), overlay)
-          draw = ImageDraw.Draw(bg)
+              logo = get_logo()
+              base.paste(logo, (40, 40), logo)
 
-          # Fonts
-          try:
-              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
-              font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
-              font_body = ImageFont.truetype("DejaVuSans.ttf", 26)
-              font_footer = ImageFont.truetype("DejaVuSans.ttf", 22)
-          except:
-              font_title = font_sub = font_body = font_footer = ImageFont.load_default()
+              # Fonts
+              try:
+                  font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
+                  font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
+                  font_body = ImageFont.truetype("DejaVuSans.ttf", 26)
+                  font_footer = ImageFont.truetype("DejaVuSans.ttf", 22)
+              except Exception:
+                  font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
-          # Place logo
-          bg.paste(logo, (40, 40), logo)
+              # Header
+              draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
+              draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
+              draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
 
-          # Titles
-          draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
-          draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
-          draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
+              # Forecast body text (left-aligned block)
+              draw.multiline_text(
+                  (80, 300),
+                  forecast_text,
+                  fill="white",
+                  font=font_body,
+                  align="left",
+                  spacing=8,
+              )
 
-          # Forecast text
-          draw.multiline_text(
-              (80, 300),
-              forecast_text,
-              fill="white",
-              font=font_body,
-              align="left",
-              spacing=8
-          )
+              # Footer
+              draw.text(
+                  (400, 760),
+                  "NOAA Marine Forecast | RabirubiaWeather",
+                  fill="#a0e4ff",
+                  font=font_footer,
+                  anchor="mm",
+              )
 
-          # Footer
-          draw.text(
-              (400, 760),
-              "NOAA Marine Forecast | RabirubiaWeather",
-              fill="#a0e4ff",
-              font=font_footer,
-              anchor="mm"
-          )
+              base.convert("RGB").save("wave_card.png", optimize=True)
+              print("Saved wave_card.png")
 
-          # Save card
-          output_path = "wave_card.png"
-          bg.convert("RGB").save(output_path, optimize=True)
-
-          if not os.path.exists(output_path):
-              raise Exception("wave_card.png was NOT created!")
-
-          print("Card generated successfully:", output_path)
-
-          except Exception as e:
-              print("PYTHON ERROR:", e)
-              traceback.print_exc()
-              raise
+          if __name__ == "__main__":
+              try:
+                  create_card()
+              except Exception as e:
+                  # Absolute fallback: still create a card so the workflow never breaks
+                  print("FATAL ERROR, creating fallback card:", e)
+                  traceback.print_exc()
+                  img = Image.new("RGB", (800, 800), "#004488")
+                  d = ImageDraw.Draw(img)
+                  msg = "RabirubiaWeather\nWave Forecast\nError generating card.\nCheck NWS Marine directly."
+                  d.multiline_text((400, 400), msg, fill="white", font=ImageFont.load_default(),
+                                   anchor="mm", align="center")
+                  img.save("wave_card.png", optimize=True)
+                  print("Saved fallback wave_card.png")
           EOF
 
       - name: Commit and push updated image

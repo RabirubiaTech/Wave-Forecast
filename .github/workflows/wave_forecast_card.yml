@@ -12,9 +12,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -113,18 +110,13 @@ jobs:
 
           draw.text((40, 1250), disclaimer, fill=white, font=font_disclaimer)
 
-          os.makedirs("generated", exist_ok=True)
-          bg.save("generated/wave_forecast_card.png", optimize=True)
+          os.makedirs("output", exist_ok=True)
+          bg.save("output/wave_forecast_card.png", optimize=True)
           EOF
 
-      - name: Commit to generated branch
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git checkout -B generated
-
-          git add generated/wave_forecast_card.png
-          git commit -m "Auto-update wave forecast card" || echo "No changes"
-
-          git push -u origin generated
+      - name: Upload Wave Card Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave-card-latest
+          path: output/wave_forecast_card.png
+          retention-days: 7

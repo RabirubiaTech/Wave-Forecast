@@ -26,13 +26,14 @@ jobs:
 
       - name: Generate Wave Forecast Card
         run: |
+          set -e
           python3 << 'EOF'
-          import requests, textwrap
+          import requests, textwrap, traceback
           from PIL import Image, ImageDraw, ImageFont
-          import io
+          import io, os
 
-          # Fetch NOAA Marine Forecast (MIM product)
           try:
+              # Fetch NOAA Marine Forecast (MIM product)
               product_list = requests.get(
                   "https://api.weather.gov/products/types/MIM/locations/SJU",
                   timeout=20
@@ -46,7 +47,8 @@ jobs:
               ).json()
 
               raw_text = product.get("productText", "")
-          except:
+          except Exception as e:
+              print("NOAA ERROR:", e)
               raw_text = ""
 
           # Clean and wrap text
@@ -57,8 +59,12 @@ jobs:
               cleaned = cleaned.replace("“", "\"").replace("”", "\"").replace("’", "'")
 
               # Remove header lines (first 5 lines are metadata)
-              cleaned_lines = cleaned.splitlines()[5:]
-              cleaned = "\n".join(cleaned_lines)
+              lines = cleaned.splitlines()
+              if len(lines) > 5:
+                  lines = lines[5:]
+
+              cleaned = "\n".join(lines)
+              cleaned = cleaned.strip()
 
               forecast_text = "\n".join(textwrap.wrap(cleaned, width=42))
 
@@ -127,12 +133,29 @@ jobs:
               anchor="mm"
           )
 
-          # Save
-          bg.convert("RGB").save("wave_card.png", optimize=True)
+          # Save card
+          output_path = "wave_card.png"
+          bg.convert("RGB").save(output_path, optimize=True)
+
+          # Confirm file exists
+          if not os.path.exists(output_path):
+              raise Exception("wave_card.png was NOT created!")
+
+          print("Card generated successfully:", output_path)
+
+          except Exception as e:
+              print("PYTHON ERROR:", e)
+              traceback.print_exc()
+              raise
           EOF
 
       - name: Commit and push updated image
         run: |
+          if [ ! -f wave_card.png ]; then
+            echo "ERROR: wave_card.png not found — aborting commit"
+            exit 1
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add wave_card.png

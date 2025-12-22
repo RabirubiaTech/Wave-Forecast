@@ -13,6 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: true
 
       - name: Set up Python
@@ -116,12 +117,14 @@ jobs:
           bg.save("generated/wave_forecast_card.png", optimize=True)
           EOF
 
-      - name: Commit updated card
+      - name: Commit to generated branch
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          git add generated/wave_forecast_card.png
-          git commit -m "Auto-update wave forecast card" || echo "No changes to commit"
+          git checkout -B generated
 
-          git push origin main
+          git add generated/wave_forecast_card.png
+          git commit -m "Auto-update wave forecast card" || echo "No changes"
+
+          git push -u origin generated

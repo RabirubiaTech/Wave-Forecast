@@ -24,11 +24,10 @@ jobs:
         run: |
           pip install pillow requests beautifulsoup4
 
-      - name: Generate Wave Forecast Card
+      - name: Generate Wave Forecast Card (with debug)
         run: |
           python3 << 'EOF'
           import requests, re, textwrap
-          from bs4 import BeautifulSoup
           from PIL import Image, ImageDraw, ImageFont
           import io, traceback
 
@@ -36,33 +35,33 @@ jobs:
           ZONE = "AMZ712"
           FALLBACK = "Wave forecast temporarily unavailable."
 
-          # ---------------------------------------------------------
-          # FETCH NDBC TEXT FORECAST
-          # ---------------------------------------------------------
+          print("\n===== FETCHING NDBC FORECAST =====")
+
           def fetch_ndbc():
               try:
                   r = requests.get(URL, timeout=20)
                   r.raise_for_status()
+                  print("NDBC fetch OK\n")
                   return r.text
               except Exception as e:
                   print("NDBC fetch error:", e)
                   traceback.print_exc()
                   return None
 
-          # ---------------------------------------------------------
-          # EXTRACT AMZ712 BLOCK
-          # ---------------------------------------------------------
           def extract_zone_block(text):
+              print("===== EXTRACTING ZONE BLOCK =====")
               pattern = rf"({ZONE}.*?)(AMZ\\d{{3}}|$)"
-              m = re.search(pattern, text, re.DOTALL)
+              m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
               if not m:
+                  print("ZONE NOT FOUND")
                   return None
-              return m.group(1)
+              block = m.group(1)
+              print(block)
+              print("===== END ZONE BLOCK =====\n")
+              return block
 
-          # ---------------------------------------------------------
-          # SPLIT INTO DAYTIME PERIODS ONLY
-          # ---------------------------------------------------------
           def extract_daytime_periods(block):
+              print("===== SPLITTING INTO DAYTIME PERIODS =====")
               day_labels = ["TODAY", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
               periods = []
@@ -86,67 +85,76 @@ jobs:
               if current_label and current_text:
                   periods.append((current_label, " ".join(current_text)))
 
+              print("Extracted periods:")
+              for p in periods:
+                  print(p[0], "=>", p[1])
+              print("===== END PERIOD SPLIT =====\n")
+
               return periods[:6]
 
-          # ---------------------------------------------------------
-          # BULLETPROOF WAVE EXTRACTION
-          # ---------------------------------------------------------
           def extract_wave_info(text):
-              text = text.lower()
+              print("Parsing wave info from:", text)
 
-              # 1. Wave height (range)
-              m_range = re.search(r"seas? (\d+)\s*(?:to|-)\s*(\d+)\s*ft", text)
+              t = text.lower()
+
+              # 1. Range: "4 to 6 ft"
+              m_range = re.search(r"seas? (\d+)\s*(?:to|-)\s*(\d+)\s*ft", t)
               if m_range:
                   low, high = m_range.group(1), m_range.group(2)
                   height = f"{low}–{high} ft"
               else:
-                  # 2. Single height → convert to ±1 ft
-                  m_single = re.search(r"seas? (?:around )?(\d+)\s*ft", text)
+                  # 2. Single: "5 ft" or "around 5 ft"
+                  m_single = re.search(r"seas? (?:around )?(\d+)\s*ft", t)
                   if m_single:
                       val = int(m_single.group(1))
                       height = f"{val-1}–{val+1} ft"
                   else:
+                      print("NO WAVE HEIGHT FOUND\n")
                       return None
 
               # 3. Period
-              m_period = re.search(r"(\d+)\s*(?:sec|seconds)", text)
+              m_period = re.search(r"(\d+)\s*(?:sec|seconds)", t)
               seconds = m_period.group(1) if m_period else ""
 
-              # 4. Swell direction
-              m_dir = re.search(r"\b(n|ne|ene|nne|e|ese|se|sse|s|ssw|sw|wsw|w|wnw|nw|nnw)\b", text)
+              # 4. Direction
+              m_dir = re.search(
+                  r"\b(n|ne|ene|nne|e|ese|se|sse|s|ssw|sw|wsw|w|wnw|nw|nnw)\b",
+                  t
+              )
               direction = m_dir.group(1).upper() if m_dir else ""
 
-              if seconds:
-                  return f"{height} @ {seconds}s {direction}".strip()
-              return height
+              result = f"{height} @ {seconds}s {direction}".strip()
+              print("Parsed:", result, "\n")
+              return result
 
-          # ---------------------------------------------------------
-          # BUILD ULTRA-COMPACT FORECAST
-          # ---------------------------------------------------------
           def build_forecast():
               raw = fetch_ndbc()
               if not raw:
                   return FALLBACK
 
               block = extract_zone_block(raw)
-              print("----- AMZ712 BLOCK START -----")
-              print(block)
-              print("----- AMZ712 BLOCK END -----")
-
-if not block:
+              if not block:
                   return FALLBACK
 
               periods = extract_daytime_periods(block)
               if not periods:
                   return FALLBACK
 
+              print("===== BUILDING ULTRA-COMPACT FORECAST =====")
               lines = []
               for label, text in periods:
                   wave = extract_wave_info(text)
                   if wave:
                       lines.append(f"{label}: {wave}")
 
-              return "\n".join(lines) if lines else FALLBACK
+              if not lines:
+                  print("NO WAVE DATA FOUND — USING FALLBACK\n")
+                  return FALLBACK
+
+              final = "\n".join(lines)
+              print("FINAL FORECAST:\n", final)
+              print("===== END FORECAST BUILD =====\n")
+              return final
 
           forecast_text = build_forecast()
 

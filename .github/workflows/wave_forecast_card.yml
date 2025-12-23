@@ -27,9 +27,8 @@ jobs:
       - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
-          import requests, textwrap, re, json
+          import requests, textwrap, re, io, traceback
           from PIL import Image, ImageDraw, ImageFont
-          import io, os, traceback
 
           HEADERS = {
               "User-Agent": "RabirubiaWeather (contact@rabirubiaweather.com)",
@@ -41,82 +40,70 @@ jobs:
               "Please refer directly to NWS Marine Weather."
           )
 
-          def safe_json(response):
-              """Return JSON if valid, otherwise None."""
+          def safe_json(resp):
               try:
-                  return response.json()
+                  return resp.json()
               except:
                   return None
 
-      def get_forecast_text():
-    try:
-        # 1) Get Coastal Waters Forecast products for SJU
-        r_list = requests.get(
-            "https://api.weather.gov/products/types/CWF/locations/SJU",
-            headers=HEADERS,
-            timeout=20
-        )
+          def get_forecast_text():
+              try:
+                  r_list = requests.get(
+                      "https://api.weather.gov/products/types/CWF/locations/SJU",
+                      headers=HEADERS,
+                      timeout=20
+                  )
 
-        plist = safe_json(r_list)
-        if not plist or "products" not in plist:
-            return FALLBACK
+                  plist = safe_json(r_list)
+                  if not plist or "products" not in plist:
+                      return FALLBACK
 
-        products = plist.get("products") or []
-        if not products:
-            return FALLBACK
+                  products = plist.get("products") or []
+                  if not products:
+                      return FALLBACK
 
-        # Pick the most recent product with an ID
-        pid = products[0].get("id")
-        if not pid:
-            return FALLBACK
+                  pid = products[0].get("id")
+                  if not pid:
+                      return FALLBACK
 
-        # 2) Fetch product text
-        r_prod = requests.get(
-            f"https://api.weather.gov/products/{pid}",
-            headers=HEADERS,
-            timeout=20
-        )
+                  r_prod = requests.get(
+                      f"https://api.weather.gov/products/{pid}",
+                      headers=HEADERS,
+                      timeout=20
+                  )
 
-        prod = safe_json(r_prod)
-        if not prod:
-            return FALLBACK
+                  prod = safe_json(r_prod)
+                  if not prod:
+                      return FALLBACK
 
-        raw = prod.get("productText", "")
-        if not raw or not isinstance(raw, str):
-            return FALLBACK
+                  raw = prod.get("productText", "")
+                  if not raw or not isinstance(raw, str):
+                      return FALLBACK
 
-        # 3) Clean but PRESERVE line breaks
-        text = raw.replace("\r", "")
-        text = re.sub(r"[^\x20-\x7E\n]", " ", text)
-        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                  text = raw.replace("\r", "")
+                  text = re.sub(r"[^\x20-\x7E\n]", " ", text)
+                  text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
-        # 4) Remove WMO header safely (first block only)
-        if "\n\n" in text:
-            text = text.split("\n\n", 1)[1]
+                  if "\n\n" in text:
+                      text = text.split("\n\n", 1)[1]
 
-        # 5) Limit size
-        text = text[:1400]
+                  text = text[:1400]
 
-        # 6) Wrap for card rendering
-        wrapped = "\n".join(
-            textwrap.fill(line, width=42)
-            for line in text.splitlines()
-            if line.strip()
-        )
+                  wrapped = "\n".join(
+                      textwrap.fill(line, width=42)
+                      for line in text.splitlines()
+                      if line.strip()
+                  )
 
-        return wrapped or FALLBACK
+                  return wrapped or FALLBACK
 
-    except Exception as e:
-        print("Forecast error:", e)
-        traceback.print_exc()
-        return FALLBACK
-
+              except Exception as e:
+                  print("Forecast error:", e)
+                  traceback.print_exc()
+                  return FALLBACK
 
           forecast_text = get_forecast_text()
 
-          # ---------------------------------------------------------
-          # BACKGROUND
-          # ---------------------------------------------------------
           try:
               bg_data = requests.get(
                   "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
@@ -128,9 +115,6 @@ jobs:
 
           bg = bg.resize((800, 800))
 
-          # ---------------------------------------------------------
-          # LOGO
-          # ---------------------------------------------------------
           try:
               logo_data = requests.get(
                   "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png",
@@ -142,9 +126,6 @@ jobs:
 
           logo = logo.resize((120, 120))
 
-          # ---------------------------------------------------------
-          # DRAW CARD
-          # ---------------------------------------------------------
           overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
           card = Image.alpha_composite(bg.convert("RGBA"), overlay)
           draw = ImageDraw.Draw(card)
@@ -157,13 +138,11 @@ jobs:
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
-          # Header
           card.paste(logo, (40, 40), logo)
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
           draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
 
-          # Forecast text
           draw.multiline_text(
               (80, 300),
               forecast_text,
@@ -173,7 +152,6 @@ jobs:
               spacing=8
           )
 
-          # Footer
           draw.text(
               (400, 760),
               "NOAA Marine Forecast | RabirubiaWeather",
@@ -182,10 +160,8 @@ jobs:
               anchor="mm"
           )
 
-          # Save PNG
           card.convert("RGB").save("wave_card.png", optimize=True)
           print("Saved wave_card.png")
-
           EOF
 
       - name: Commit and push updated image

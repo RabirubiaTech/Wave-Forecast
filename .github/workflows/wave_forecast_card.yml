@@ -27,8 +27,9 @@ jobs:
       - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
-          import requests, textwrap, re, io, traceback, os
+          import requests, textwrap, re
           from PIL import Image, ImageDraw, ImageFont
+          import io, os, traceback
 
           HEADERS = {
               "User-Agent": "RabirubiaWeather (contact@rabirubiaweather.com)",
@@ -36,57 +37,67 @@ jobs:
           }
 
           FALLBACK = (
-              "Marine forecast temporarily unavailable.\n"
+              "Wave forecast temporarily unavailable.\n"
               "Please refer directly to NWS Marine Weather."
           )
 
-          FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-          FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-
-          def safe_json(resp):
-              try:
-                  return resp.json()
-              except:
-                  return None
-
+          # ---------------------------------------------------------
+          # FETCH NOAA CWF (THE CORRECT WAVE FORECAST PRODUCT)
+          # ---------------------------------------------------------
           def get_forecast_text():
               try:
-                  r = requests.get(
+                  # 1) Get latest CWF product for SJU
+                  r_list = requests.get(
                       "https://api.weather.gov/products/types/CWF/locations/SJU",
                       headers=HEADERS,
                       timeout=20
                   )
-                  data = safe_json(r)
-                  if not data or not data.get("products"):
+                  try:
+                      plist = r_list.json()
+                  except:
                       return FALLBACK
 
-                  pid = data["products"][0]["id"]
+                  products = plist.get("products") or []
+                  if not products:
+                      return FALLBACK
 
-                  r2 = requests.get(
+                  pid = products[0].get("id")
+                  if not pid:
+                      return FALLBACK
+
+                  # 2) Fetch the product text
+                  r_prod = requests.get(
                       f"https://api.weather.gov/products/{pid}",
                       headers=HEADERS,
                       timeout=20
                   )
-                  prod = safe_json(r2)
-                  raw = prod.get("productText", "")
+                  try:
+                      prod = r_prod.json()
+                  except:
+                      return FALLBACK
 
+                  raw = prod.get("productText", "")
                   if not raw:
                       return FALLBACK
 
+                  # ---------------------------------------------------------
+                  # CLEAN & EXTRACT WAVE FORECAST
+                  # ---------------------------------------------------------
                   text = raw.replace("\r", "")
-                  text = re.sub(r"[^\x20-\x7E\n]", " ", text)
-                  text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                  text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
+                  text = re.sub(r"\s+", " ", text).strip()
 
-                  if "\n\n" in text:
-                      text = text.split("\n\n", 1)[1]
+                  # Find first marine zone header (AMZ7xx)
+                  m = re.search(r"(AMZ\d{3}.*?)$", text)
+                  if m:
+                      text = m.group(1)
 
-                  text = text[:1400]
+                  # Limit length
+                  text = text[:1500]
 
-                  return "\n".join(
-                      textwrap.fill(line, width=42)
-                      for line in text.splitlines()
-                      if line.strip()
-                  )
+                  # Wrap
+                  wrapped = textwrap.fill(text, width=42)
+                  return wrapped or FALLBACK
 
               except Exception as e:
                   print("Forecast error:", e)
@@ -95,63 +106,77 @@ jobs:
 
           forecast_text = get_forecast_text()
 
+          # ---------------------------------------------------------
+          # BACKGROUND
+          # ---------------------------------------------------------
           try:
-              bg = Image.open(io.BytesIO(
-                  requests.get(
-                      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
-                      timeout=20
-                  ).content
-              )).convert("RGB")
+              bg_data = requests.get(
+                  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+                  timeout=20
+              ).content
+              bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
           except:
               bg = Image.new("RGB", (800, 800), "#004488")
 
           bg = bg.resize((800, 800))
 
+          # ---------------------------------------------------------
+          # LOGO
+          # ---------------------------------------------------------
           try:
-              logo = Image.open(io.BytesIO(
-                  requests.get(
-                      "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png",
-                      timeout=20
-                  ).content
-              )).convert("RGBA").resize((120, 120))
+              logo_data = requests.get(
+                  "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png",
+                  timeout=20
+              ).content
+              logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
           except:
               logo = Image.new("RGBA", (120, 120), "white")
 
-          card = Image.alpha_composite(
-              bg.convert("RGBA"),
-              Image.new("RGBA", bg.size, (0, 0, 0, 120))
-          )
+          logo = logo.resize((120, 120))
 
+          # ---------------------------------------------------------
+          # DRAW CARD
+          # ---------------------------------------------------------
+          overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
+          card = Image.alpha_composite(bg.convert("RGBA"), overlay)
           draw = ImageDraw.Draw(card)
 
-          font_title = ImageFont.truetype(FONT_BOLD, 48)
-          font_sub = ImageFont.truetype(FONT_REG, 40)
-          font_body = ImageFont.truetype(FONT_REG, 26)
-          font_footer = ImageFont.truetype(FONT_REG, 22)
+          try:
+              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
+              font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
+              font_body = ImageFont.truetype("DejaVuSans.ttf", 26)
+              font_footer = ImageFont.truetype("DejaVuSans.ttf", 22)
+          except:
+              font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
+          # Header
           card.paste(logo, (40, 40), logo)
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
           draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
 
+          # Forecast text
           draw.multiline_text(
               (80, 300),
               forecast_text,
               fill="white",
               font=font_body,
+              align="left",
               spacing=8
           )
 
+          # Footer
           draw.text(
               (400, 760),
-              "NOAA Marine Forecast | RabirubiaWeather",
+              "NOAA Coastal Waters Forecast | RabirubiaWeather",
               fill="#a0e4ff",
               font=font_footer,
               anchor="mm"
           )
 
-          card.convert("RGB").save("wave_card.png", format="PNG")
-          print("wave_card.png generated:", os.path.exists("wave_card.png"))
+          # Save PNG
+          card.convert("RGB").save("wave_card.png", optimize=True)
+          print("Saved wave_card.png")
           EOF
 
       - name: Commit and push updated image

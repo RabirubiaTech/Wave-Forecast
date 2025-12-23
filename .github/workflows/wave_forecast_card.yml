@@ -22,19 +22,17 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install pillow requests
+          pip install pillow requests beautifulsoup4
 
       - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
           import requests, textwrap, re
+          from bs4 import BeautifulSoup
           from PIL import Image, ImageDraw, ImageFont
           import io, os, traceback
 
-          HEADERS = {
-              "User-Agent": "RabirubiaWeather (contact@rabirubiaweather.com)",
-              "Accept": "application/geo+json, application/json"
-          }
+          NOAA_URL = "https://forecast.weather.gov/product.php?site=NWS&product=CWF&issuedby=SJU"
 
           FALLBACK = (
               "Wave forecast temporarily unavailable.\n"
@@ -42,52 +40,28 @@ jobs:
           )
 
           # ---------------------------------------------------------
-          # FETCH NOAA CWF (THE CORRECT WAVE FORECAST PRODUCT)
+          # SCRAPE NOAA HTML PAGE (ALWAYS AVAILABLE)
           # ---------------------------------------------------------
           def get_forecast_text():
               try:
-                  # 1) Get latest CWF product for SJU
-                  r_list = requests.get(
-                      "https://api.weather.gov/products/types/CWF/locations/SJU",
-                      headers=HEADERS,
-                      timeout=20
-                  )
-                  try:
-                      plist = r_list.json()
-                  except:
+                  r = requests.get(NOAA_URL, timeout=20)
+                  r.raise_for_status()
+
+                  soup = BeautifulSoup(r.text, "html.parser")
+
+                  # NOAA puts the forecast text inside <pre> tags
+                  pre = soup.find("pre")
+                  if not pre:
                       return FALLBACK
 
-                  products = plist.get("products") or []
-                  if not products:
-                      return FALLBACK
+                  raw = pre.get_text("\n")
 
-                  pid = products[0].get("id")
-                  if not pid:
-                      return FALLBACK
-
-                  # 2) Fetch the product text
-                  r_prod = requests.get(
-                      f"https://api.weather.gov/products/{pid}",
-                      headers=HEADERS,
-                      timeout=20
-                  )
-                  try:
-                      prod = r_prod.json()
-                  except:
-                      return FALLBACK
-
-                  raw = prod.get("productText", "")
-                  if not raw:
-                      return FALLBACK
-
-                  # ---------------------------------------------------------
-                  # CLEAN & EXTRACT WAVE FORECAST
-                  # ---------------------------------------------------------
+                  # Clean text
                   text = raw.replace("\r", "")
                   text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
                   text = re.sub(r"\s+", " ", text).strip()
 
-                  # Find first marine zone header (AMZ7xx)
+                  # Extract from first marine zone (AMZ7xx)
                   m = re.search(r"(AMZ\d{3}.*?)$", text)
                   if m:
                       text = m.group(1)
@@ -100,7 +74,7 @@ jobs:
                   return wrapped or FALLBACK
 
               except Exception as e:
-                  print("Forecast error:", e)
+                  print("HTML scrape error:", e)
                   traceback.print_exc()
                   return FALLBACK
 

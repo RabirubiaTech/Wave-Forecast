@@ -129,7 +129,11 @@ jobs:
                   return FALLBACK
 
               block = extract_zone_block(raw)
-              if not block:
+              print("----- AMZ712 BLOCK START -----")
+print(block)
+print("----- AMZ712 BLOCK END -----")
+
+if not block:
                   return FALLBACK
 
               periods = extract_daytime_periods(block)

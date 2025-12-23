@@ -88,10 +88,14 @@ jobs:
                   cleaned = cleaned[:6]
 
                   final_lines = []
+                  first_line = True
+
                   for label, txt in cleaned:
-                  # Rename the first forecast period to "Currently"
-                  if not final_lines:
-                  label = "Currently"
+
+                      # ⭐ FORCE FIRST LINE TO "Currently"
+                      if first_line:
+                          label = "Currently"
+                          first_line = False
 
                       m = re.search(
                           r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
@@ -156,7 +160,7 @@ jobs:
               font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
               font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
               font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
-              font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)  # smaller footer
+              font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
@@ -172,7 +176,6 @@ jobs:
           # ---------------------------------------------------------
           card.paste(logo, (40, 40), logo)
 
-          # Small date in header
           draw.text((200, 80), today_str, fill=TEXT, font=font_title)
 
           draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
@@ -188,12 +191,12 @@ jobs:
           )
 
           # ---------------------------------------------------------
-          # SINGLE-LINE FOOTER (CENTERED)
+          # SINGLE-LINE FOOTER
           # ---------------------------------------------------------
           footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
 
           draw.text(
-              (400, 730),          # centered horizontally
+              (400, 730),
               footer_line,
               fill=TEXT,
               font=font_footer,

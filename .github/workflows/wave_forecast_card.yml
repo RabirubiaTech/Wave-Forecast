@@ -27,7 +27,7 @@ jobs:
       - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
-          import requests, textwrap, re, io, traceback
+          import requests, textwrap, re, io, traceback, os
           from PIL import Image, ImageDraw, ImageFont
 
           HEADERS = {
@@ -40,6 +40,9 @@ jobs:
               "Please refer directly to NWS Marine Weather."
           )
 
+          FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+          FONT_REG = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
           def safe_json(resp):
               try:
                   return resp.json()
@@ -48,36 +51,26 @@ jobs:
 
           def get_forecast_text():
               try:
-                  r_list = requests.get(
+                  r = requests.get(
                       "https://api.weather.gov/products/types/CWF/locations/SJU",
                       headers=HEADERS,
                       timeout=20
                   )
-
-                  plist = safe_json(r_list)
-                  if not plist or "products" not in plist:
+                  data = safe_json(r)
+                  if not data or not data.get("products"):
                       return FALLBACK
 
-                  products = plist.get("products") or []
-                  if not products:
-                      return FALLBACK
+                  pid = data["products"][0]["id"]
 
-                  pid = products[0].get("id")
-                  if not pid:
-                      return FALLBACK
-
-                  r_prod = requests.get(
+                  r2 = requests.get(
                       f"https://api.weather.gov/products/{pid}",
                       headers=HEADERS,
                       timeout=20
                   )
-
-                  prod = safe_json(r_prod)
-                  if not prod:
-                      return FALLBACK
-
+                  prod = safe_json(r2)
                   raw = prod.get("productText", "")
-                  if not raw or not isinstance(raw, str):
+
+                  if not raw:
                       return FALLBACK
 
                   text = raw.replace("\r", "")
@@ -89,13 +82,11 @@ jobs:
 
                   text = text[:1400]
 
-                  wrapped = "\n".join(
+                  return "\n".join(
                       textwrap.fill(line, width=42)
                       for line in text.splitlines()
                       if line.strip()
                   )
-
-                  return wrapped or FALLBACK
 
               except Exception as e:
                   print("Forecast error:", e)
@@ -105,38 +96,38 @@ jobs:
           forecast_text = get_forecast_text()
 
           try:
-              bg_data = requests.get(
-                  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
-                  timeout=20
-              ).content
-              bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
+              bg = Image.open(io.BytesIO(
+                  requests.get(
+                      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+                      timeout=20
+                  ).content
+              )).convert("RGB")
           except:
               bg = Image.new("RGB", (800, 800), "#004488")
 
           bg = bg.resize((800, 800))
 
           try:
-              logo_data = requests.get(
-                  "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png",
-                  timeout=20
-              ).content
-              logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
+              logo = Image.open(io.BytesIO(
+                  requests.get(
+                      "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png",
+                      timeout=20
+                  ).content
+              )).convert("RGBA").resize((120, 120))
           except:
               logo = Image.new("RGBA", (120, 120), "white")
 
-          logo = logo.resize((120, 120))
+          card = Image.alpha_composite(
+              bg.convert("RGBA"),
+              Image.new("RGBA", bg.size, (0, 0, 0, 120))
+          )
 
-          overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
-          card = Image.alpha_composite(bg.convert("RGBA"), overlay)
           draw = ImageDraw.Draw(card)
 
-          try:
-              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
-              font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
-              font_body = ImageFont.truetype("DejaVuSans.ttf", 26)
-              font_footer = ImageFont.truetype("DejaVuSans.ttf", 22)
-          except:
-              font_title = font_sub = font_body = font_footer = ImageFont.load_default()
+          font_title = ImageFont.truetype(FONT_BOLD, 48)
+          font_sub = ImageFont.truetype(FONT_REG, 40)
+          font_body = ImageFont.truetype(FONT_REG, 26)
+          font_footer = ImageFont.truetype(FONT_REG, 22)
 
           card.paste(logo, (40, 40), logo)
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
@@ -148,7 +139,6 @@ jobs:
               forecast_text,
               fill="white",
               font=font_body,
-              align="left",
               spacing=8
           )
 
@@ -160,8 +150,8 @@ jobs:
               anchor="mm"
           )
 
-          card.convert("RGB").save("wave_card.png", optimize=True)
-          print("Saved wave_card.png")
+          card.convert("RGB").save("wave_card.png", format="PNG")
+          print("wave_card.png generated:", os.path.exists("wave_card.png"))
           EOF
 
       - name: Commit and push updated image

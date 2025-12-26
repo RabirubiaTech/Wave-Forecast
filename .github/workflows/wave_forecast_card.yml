@@ -34,7 +34,7 @@ jobs:
           from datetime import datetime
 
           URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
-          ZONE = "AMZ712"
+          ZONE = "AMZ726"
           FALLBACK = "Wave forecast temporarily unavailable."
 
           # ---------------------------------------------------------
@@ -179,7 +179,7 @@ jobs:
           draw.text((200, 80), today_str, fill=TEXT, font=font_title)
 
           draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
-          draw.text((400, 240), "North Puerto Rico (AMZ712)", fill=TEXT, font=font_sub, anchor="mm")
+          draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_sub, anchor="mm")
 
           draw.multiline_text(
               (80, 300),

@@ -34,7 +34,7 @@ jobs:
           from datetime import datetime
 
           URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
-          ZONE = "AMZ726"
+          ZONE = "726"
           FALLBACK = "Wave forecast temporarily unavailable."
 
           # ---------------------------------------------------------
@@ -53,7 +53,7 @@ jobs:
               soup = BeautifulSoup(html, "html.parser")
               text = soup.get_text("\n")
 
-              pattern = rf"({ZONE}.*?)(AMZ\\d{{3}}|$)"
+              pattern = rf"({ZONE}.*?)(\\d{{3}}|$)"
               m = re.search(pattern, text, re.DOTALL)
               if not m:
                   forecast_text = FALLBACK
@@ -158,7 +158,7 @@ jobs:
           # ---------------------------------------------------------
           try:
               font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
-              font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
+              font_sub = ImageFont.truetype("DejaVuSans.ttf", 30)
               font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
               font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
           except:

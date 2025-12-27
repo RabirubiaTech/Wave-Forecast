@@ -116,31 +116,38 @@ jobs:
                   forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
 
           # ──────────────────────────────
-          # NEW: Fetch CURRENT conditions from Buoy 41043
+          # NEW: Fetch CURRENT conditions from Buoy 41043 (updated column indices for 2025 structure)
           # ──────────────────────────────
+          
           BUOY_URL = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
           buoy_sig = buoy_swell_h = buoy_period = buoy_dir = "N/A"
-
+          
           try:
               buoy_r = requests.get(BUOY_URL, timeout=15)
+              buoy_r.raise_for_status()  # Raise error on bad status
               buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
-              table = buoy_soup.find("table", {"cellpadding": "5"})
+              
+              # Find the main observations table (no cellpadding anymore)
+              table = buoy_soup.find("table")  # First/main table should be it
               if table:
-                  # Usually first data row after header
-                  row = table.find_all("tr")[1]
-                  cols = row.find_all("td")
-                  if len(cols) > 12:
-                      wvht = cols[8].get_text(strip=True)   # Significant Wave Height
-                      swh  = cols[10].get_text(strip=True)  # Swell Height
-                      swp  = cols[11].get_text(strip=True)  # Swell Period
-                      swd  = cols[12].get_text(strip=True) if len(cols) > 12 else "N/A"
-
-                      if wvht and wvht != "MM": buoy_sig     = wvht + " ft"
-                      if swh  and swh  != "MM": buoy_swell_h = swh  + " ft"
-                      if swp  and swp  != "MM": buoy_period  = swp  + " sec"
-                      if swd  and swd  != "MM": buoy_dir     = swd
-          except:
-              pass  # Keep N/A on failure
+                  rows = table.find_all("tr")
+                  if len(rows) > 1:  # Skip header, take first data row
+                      row = rows[1]
+                      cols = row.find_all("td")
+                      if len(cols) >= 5:  # We need at least up to SwD
+                          wvht = cols[1].get_text(strip=True)   # WVHT ft
+                          swh  = cols[2].get_text(strip=True)   # SwH ft
+                          swp  = cols[3].get_text(strip=True)   # SwP sec
+                          swd  = cols[4].get_text(strip=True)   # SwD
+          
+                          if wvht and wvht != "MM": buoy_sig     = wvht + " ft"
+                          if swh  and swh  != "MM": buoy_swell_h = swh  + " ft"
+                          if swp  and swp  != "MM": buoy_period  = swp  + " sec"
+                          if swd  and swd  != "MM": buoy_dir     = swd
+          except Exception as e:
+              pass  # Fallback to N/A on any error
+          
+          # (rest of your script remains the same – draw the text with these variables)
 
           # ──────────────────────────────
           # IMAGE GENERATION (original + new bottom section)

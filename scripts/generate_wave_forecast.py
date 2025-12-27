@@ -1,104 +1,226 @@
 import requests
+import re
 from bs4 import BeautifulSoup
-from PIL import Image, ImageDraw, ImageFont
-import datetime
-import os
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+import io
+from datetime import datetime
 
-# Create directory if not exists
-os.makedirs('images', exist_ok=True)
+# ─────────────────────────────────────────────────────────────
+# 1. Fetch & Parse AMZ726 Forecast (your original logic, unchanged)
+# ─────────────────────────────────────────────────────────────
+URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
+ZONE = "726"
+FALLBACK = "Wave forecast temporarily unavailable."
 
-# Fetch real-time data from Buoy 41043 (NE Puerto Rico)
-url = 'https://www.ndbc.noaa.gov/station_page.php?station=41043'
-response = requests.get(url)
-soup = BeautifulSoup(response.text, 'html.parser')
+try:
+    r = requests.get(URL, timeout=20)
+    r.raise_for_status()
+    html = r.text
+except:
+    html = None
 
-# Find the latest observations (first data row after headers)
-table = soup.find('table', {'cellpadding': '5'})
-if table:
-    rows = table.find_all('tr')
-    for row in rows[1:]:  # skip header
-        cols = row.find_all('td')
-        if len(cols) > 10:
-            wvht = cols[8].text.strip()   # Significant Wave Height
-            swh = cols[10].text.strip()   # Swell Height
-            swp = cols[11].text.strip()   # Swell Period
-            if wvht and wvht != 'MM' and swh != 'MM' and swp != 'MM':
-                sig_height = f"{wvht} ft"
-                swell_height = f"{swh} ft"
-                swell_period = f"{swp} sec"
-                break
-    else:
-        sig_height = swell_height = swell_period = "N/A"
+if not html:
+    forecast_text = FALLBACK
 else:
-    sig_height = swell_height = swell_period = "N/A"
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text("\n")
 
-# Example 7-day forecast data (replace with actual parsing from NOAA forecast if desired)
-# For now using placeholder realistic values based on current conditions
-today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=-4)))  # AST
-days = [
-    ("Today", "4-7 ft", "4-7 ft", "8 sec", "Northeast"),
-    (f"{today.strftime('%a')} {int(today.day)+1 if today.day < 31 else 1}", "5-7 ft", "5-7 ft", "9 sec", "Northeast"),
-    (f"{today.strftime('%a')} {int(today.day)+2 if today.day < 30 else 1}", "6-8 ft", "6-8 ft", "10 sec", "Northeast"),
-    (f"{today.strftime('%a')} {int(today.day)+3 if today.day < 29 else 1}", "5-7 ft", "5-7 ft", "9 sec", "Northeast"),
-    (f"{today.strftime('%a')} {int(today.day)+4 if today.day < 28 else 1}", "4-6 ft", "4-6 ft", "8 sec", "Northeast"),
-]
+    pattern = rf"({ZONE}.*?)(\\d{{3}}|$)"
+    m = re.search(pattern, text, re.DOTALL)
+    if not m:
+        forecast_text = FALLBACK
+    else:
+        block = m.group(1).replace("feet", "ft")
+        lines = block.splitlines()
+        periods = []
+        current_label = None
+        current_text = []
 
-# Image generation with Pillow (to match the style you showed)
-background = Image.new('RGB', (1080, 1350), color=(0, 105, 148))  # Rabirubia blue-ish
-draw = ImageDraw.Draw(background)
+        for line in lines:
+            line = line.strip()
+            if re.match(r"^(REST OF TONIGHT|TODAY|MON|TUE|WED|THU|FRI|SAT|SUN)", line):
+                if current_label and current_text:
+                    periods.append((current_label, " ".join(current_text)))
+                current_label = line
+                current_text = []
+            else:
+                if current_label:
+                    current_text.append(line)
 
-# Load fonts (use default if not available; replace with your brand fonts)
-title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
-big_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
-med_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
-small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
+        if current_label and current_text:
+            periods.append((current_label, " ".join(current_text)))
 
-# Logo text (replace with actual logo image if you have one)
-draw.text((60, 40), "Rabirubiaweather.com", fill="white", font=big_font)
+        cleaned = []
+        for label, txt in periods:
+            if label == "REST OF TONIGHT":
+                label = "TODAY"
+            cleaned.append((label, txt))
 
-# Title
-draw.text((60, 160), "7-Day Wave Forecast", fill="white", font=title_font)
-draw.text((60, 260), "Puerto Rico & The Virgin Islands", fill="white", font=med_font)
+        cleaned = cleaned[:6]
 
-# Refresh info
-current_time = today.strftime("%A, %I:%M %p AST")
-draw.text((60, 380), f"Refreshed: {current_time}", fill="white", font=small_font)
-draw.text((60, 440), "Refreshes every 6 hours", fill="white", font=small_font)
+        final_lines = []
+        first_line = True
 
-# Header background
-draw.rectangle([(0, 520), (1080, 620)], fill=(30, 30, 50, 200))
+        for label, txt in cleaned:
+            if first_line:
+                label = "Currently"
+                first_line = False
 
-header_y = 540
-draw.text((80, header_y), "Swells", fill="white", font=med_font)
-draw.text((280, header_y), "Height", fill="white", font=med_font)
-draw.text((500, header_y), "Period", fill="white", font=med_font)
-draw.text((700, header_y), "Direction/Location", fill="white", font=med_font)
+            m = re.search(
+                r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
+                txt,
+                re.I
+            )
+            if not m:
+                continue
 
-# Forecast rows
-row_y = 650
-for i, (day, swells, height, period, direction) in enumerate(days):
-    # Alternate row background
-    if i % 2 == 0:
-        draw.rectangle([(0, row_y-20), (1080, row_y+100)], fill=(0, 80, 120, 100))
-    
-    draw.text((60, row_y), day, fill="white", font=big_font)
-    draw.text((80, row_y+80), swells, fill="white", font=med_font)
-    draw.text((280, row_y+80), height, fill="white", font=med_font)
-    draw.text((500, row_y+80), period, fill="white", font=med_font)
-    draw.text((700, row_y+80), direction, fill="white", font=med_font)
-    
-    row_y += 160
+            direction = m.group(1).upper()
+            height = int(m.group(2))
+            period = m.group(3)
 
-# New current observations line (below last forecast row)
-final_y = row_y + 60
-draw.rectangle([(0, final_y-40), (1080, final_y+120)], fill=(20, 50, 80, 220))
+            low = height - 1
+            high = height + 1
+            height_str = f"{low}–{high} ft"
 
-draw.text((60, final_y), "Current (Buoy 41043)", fill="white", font=big_font)
-draw.text((80, final_y+70), f"{swell_height}", fill="cyan", font=med_font)  # Swell Height
-draw.text((280, final_y+70), f"{sig_height}", fill="cyan", font=med_font)  # Significant Height
-draw.text((500, final_y+70), f"{swell_period}", fill="cyan", font=med_font)  # Swell Period
-draw.text((700, final_y+70), "Northeast", fill="cyan", font=med_font)  # Direction typical
+            final_lines.append(f"{label}: {height_str} @ {period}s {direction}")
 
-# Optional: add background image overlay or wave photo (omitted for simplicity)
+        forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
 
-background.save('images/wave_forecast.png', quality=95)
+# ─────────────────────────────────────────────────────────────
+# 2. Fetch Current Buoy 41043 Data (FIXED for current table structure)
+# ─────────────────────────────────────────────────────────────
+BUOY_URL = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
+sig_height = swell_height = swell_period = buoy_dir = "N/A"
+
+try:
+    buoy_r = requests.get(BUOY_URL, timeout=15)
+    buoy_r.raise_for_status()
+    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
+
+    # Find the wave table (contains 'WVHT' header)
+    table = None
+    for t in buoy_soup.find_all('table'):
+        if 'WVHT' in t.get_text() or 'Significant Wave Height' in t.get_text():
+            table = t
+            break
+
+    if table:
+        rows = table.find_all('tr')
+        if len(rows) > 1:
+            cols = rows[1].find_all('td')  # First data row
+            if len(cols) >= 5:
+                wvht = cols[1].get_text(strip=True)   # Significant Wave Height
+                swh  = cols[2].get_text(strip=True)   # Swell Height
+                swp  = cols[3].get_text(strip=True)   # Swell Period
+                swd  = cols[4].get_text(strip=True)   # Swell Direction
+
+                if wvht and wvht not in ['MM', '-']: sig_height = f"{wvht} ft"
+                if swh  and swh  not in ['MM', '-']: swell_height = f"{swh} ft"
+                if swp  and swp  not in ['MM', '-']: swell_period = f"{swp} sec"
+                if swd  and swd  not in ['MM', '-']: buoy_dir = swd
+except:
+    pass  # Keep N/A on failure
+
+# ─────────────────────────────────────────────────────────────
+# 3. Image Generation (your original style + bottom section)
+# ─────────────────────────────────────────────────────────────
+try:
+    bg_data = requests.get(
+        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+        timeout=20
+    ).content
+    bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
+except:
+    bg = Image.new("RGB", (800, 800), "#004488")
+
+bg = bg.resize((800, 950))  # Extra height for current data
+enhancer = ImageEnhance.Brightness(bg)
+bg = enhancer.enhance(1.12)
+
+overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
+card = Image.alpha_composite(bg.convert("RGBA"), overlay)
+draw = ImageDraw.Draw(card)
+
+# Logo
+try:
+    logo_data = requests.get(
+        "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png",
+        timeout=20
+    ).content
+    logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
+    logo = logo.resize((120, 120))
+    card.paste(logo, (40, 40), logo)
+except:
+    pass
+
+# Fonts
+try:
+    font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
+    font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
+    font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
+    font_body     = ImageFont.truetype("DejaVuSans.ttf", 28)
+    font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
+    font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 22)
+except:
+    font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
+
+TEXT = "#0a1a2f"
+
+today_str = datetime.now().strftime("%b %d, %Y")
+draw.text((200, 80), today_str, fill=TEXT, font=font_title)
+
+draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
+draw.text(
+    (400, 240),
+    "Coastal waters east of Puerto Rico (AMZ726)",
+    fill=TEXT,
+    font=font_location,
+    anchor="mm"
+)
+
+draw.multiline_text(
+    (80, 300),
+    forecast_text,
+    fill=TEXT,
+    font=font_body,
+    align="left",
+    spacing=10
+)
+
+# ──────────────────────────────
+# Bottom: Current Buoy 41043
+# ──────────────────────────────
+buoy_y_title = 700   # Tune this if overlap (increase to 720-750)
+buoy_y_value = buoy_y_title + 35
+
+draw.rectangle(
+    [(60, buoy_y_title - 20), (740, buoy_y_value + 40)],
+    fill=(0, 20, 60, 140)
+)
+
+draw.text(
+    (80, buoy_y_title),
+    "Current (Buoy 41043 – NE Puerto Rico)",
+    fill="white",
+    font=font_buoy
+)
+
+buoy_text = f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}"
+draw.text(
+    (80, buoy_y_value),
+    buoy_text,
+    fill="#a0d0ff",  # light cyan
+    font=font_buoy
+)
+
+# Footer
+footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
+draw.text(
+    (400, 880),
+    footer_line,
+    fill=TEXT,
+    font=font_footer,
+    anchor="mm"
+)
+
+card.convert("RGB").save("wave_card.png", optimize=True)

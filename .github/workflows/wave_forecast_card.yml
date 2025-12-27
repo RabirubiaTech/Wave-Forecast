@@ -1,13 +1,15 @@
-name: Update 7-Day Wave Forecast Graphicast
+name: Update Wave Forecast Card Image
 
 on:
   schedule:
-    - cron: '0 */6 * * *'    # Every 6 hours UTC
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
-  build-and-update-image:
+  generate-and-commit-image:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -16,22 +18,249 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.11"
 
-      - name: Install required Python packages
+      - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 pillow
+          pip install pillow requests beautifulsoup4
 
-      - name: Generate and update wave forecast image
-        run: python scripts/generate_wave_forecast.py
-        env:
-          TZ: 'America/Puerto_Rico'
+      - name: Generate Wave Forecast Card + Current Buoy 41043 Data
+        run: |
+          python3 << 'EOF'
+          import requests, re
+          from bs4 import BeautifulSoup
+          from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+          import io
+          from datetime import datetime
+
+          # ──────────────────────────────
+          # ORIGINAL FORECAST FETCH & PARSE (unchanged)
+          # ──────────────────────────────
+          URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
+          ZONE = "726"
+          FALLBACK = "Wave forecast temporarily unavailable."
+
+          try:
+              r = requests.get(URL, timeout=20)
+              r.raise_for_status()
+              html = r.text
+          except:
+              html = None
+
+          if not html:
+              forecast_text = FALLBACK
+          else:
+              soup = BeautifulSoup(html, "html.parser")
+              text = soup.get_text("\n")
+
+              pattern = rf"({ZONE}.*?)(\\d{{3}}|$)"
+              m = re.search(pattern, text, re.DOTALL)
+              if not m:
+                  forecast_text = FALLBACK
+              else:
+                  block = m.group(1).replace("feet", "ft")
+
+                  lines = block.splitlines()
+                  periods = []
+                  current_label = None
+                  current_text = []
+
+                  for line in lines:
+                      line = line.strip()
+                      if re.match(r"^(REST OF TONIGHT|TODAY|MON|TUE|WED|THU|FRI|SAT|SUN)", line):
+                          if current_label and current_text:
+                              periods.append((current_label, " ".join(current_text)))
+                          current_label = line
+                          current_text = []
+                      else:
+                          if current_label:
+                              current_text.append(line)
+
+                  if current_label and current_text:
+                      periods.append((current_label, " ".join(current_text)))
+
+                  cleaned = []
+                  for label, txt in periods:
+                      if label == "REST OF TONIGHT":
+                          label = "TODAY"
+                      cleaned.append((label, txt))
+
+                  cleaned = cleaned[:6]
+
+                  final_lines = []
+                  first_line = True
+
+                  for label, txt in cleaned:
+                      if first_line:
+                          label = "Currently"
+                          first_line = False
+
+                      m = re.search(
+                          r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
+                          txt,
+                          re.I
+                      )
+                      if not m:
+                          continue
+
+                      direction = m.group(1).upper()
+                      height = int(m.group(2))
+                      period = m.group(3)
+
+                      low = height - 1
+                      high = height + 1
+                      height_str = f"{low}–{high} ft"
+
+                      final_lines.append(f"{label}: {height_str} @ {period}s {direction}")
+
+                  forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
+
+          # ──────────────────────────────
+          # NEW: Fetch CURRENT conditions from Buoy 41043
+          # ──────────────────────────────
+          BUOY_URL = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
+          buoy_sig = buoy_swell_h = buoy_period = buoy_dir = "N/A"
+
+          try:
+              buoy_r = requests.get(BUOY_URL, timeout=15)
+              buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
+              table = buoy_soup.find("table", {"cellpadding": "5"})
+              if table:
+                  # Usually first data row after header
+                  row = table.find_all("tr")[1]
+                  cols = row.find_all("td")
+                  if len(cols) > 12:
+                      wvht = cols[8].get_text(strip=True)   # Significant Wave Height
+                      swh  = cols[10].get_text(strip=True)  # Swell Height
+                      swp  = cols[11].get_text(strip=True)  # Swell Period
+                      swd  = cols[12].get_text(strip=True) if len(cols) > 12 else "N/A"
+
+                      if wvht and wvht != "MM": buoy_sig     = wvht + " ft"
+                      if swh  and swh  != "MM": buoy_swell_h = swh  + " ft"
+                      if swp  and swp  != "MM": buoy_period  = swp  + " sec"
+                      if swd  and swd  != "MM": buoy_dir     = swd
+          except:
+              pass  # Keep N/A on failure
+
+          # ──────────────────────────────
+          # IMAGE GENERATION (original + new bottom section)
+          # ──────────────────────────────
+          try:
+              bg_data = requests.get(
+                  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+                  timeout=20
+              ).content
+              bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
+          except:
+              bg = Image.new("RGB", (800, 800), "#004488")
+
+          bg = bg.resize((800, 900))  # Increased height to fit extra bottom section
+          enhancer = ImageEnhance.Brightness(bg)
+          bg = enhancer.enhance(1.12)
+
+          overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
+          card = Image.alpha_composite(bg.convert("RGBA"), overlay)
+          draw = ImageDraw.Draw(card)
+
+          # Logo
+          try:
+              logo_data = requests.get(
+                  "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png",
+                  timeout=20
+              ).content
+              logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
+          except:
+              logo = Image.new("RGBA", (120, 120), "white")
+
+          logo = logo.resize((120, 120))
+          card.paste(logo, (40, 40), logo)
+
+          # Fonts
+          try:
+              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
+              font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
+              font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
+              font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
+              font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
+              font_buoy = ImageFont.truetype("DejaVuSans.ttf", 22)   # slightly smaller for buoy line
+          except:
+              font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
+
+          TEXT = "#0a1a2f"
+
+          # Date header
+          today_str = datetime.now().strftime("%b %d, %Y")
+          draw.text((200, 80), today_str, fill=TEXT, font=font_title)
+
+          # Title & location
+          draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
+          draw.text(
+              (400, 240),
+              "Coastal waters east of Puerto Rico (AMZ726)",
+              fill=TEXT,
+              font=font_location,
+              anchor="mm"
+          )
+
+          # Forecast text (original)
+          draw.multiline_text(
+              (80, 300),
+              forecast_text,
+              fill=TEXT,
+              font=font_body,
+              align="left",
+              spacing=10
+          )
+
+          # ──────────────────────────────
+          # NEW BOTTOM SECTION: Current Buoy 41043
+          # ──────────────────────────────
+          buoy_y_title = 680   # Adjust this value if needed after testing (below forecast)
+          buoy_y_values = buoy_y_title + 35
+
+          # Optional subtle background bar
+          draw.rectangle(
+              [(60, buoy_y_title - 15), (740, buoy_y_values + 35)],
+              fill=(0, 20, 60, 120)  # semi-transparent dark blue
+          )
+
+          draw.text(
+              (80, buoy_y_title),
+              "Current (Buoy 41043 – NE Puerto Rico)",
+              fill="#ffffff",
+              font=font_buoy
+          )
+
+          buoy_line = f"Sig: {buoy_sig} | Swell: {buoy_swell_h} | {buoy_period} | {buoy_dir}"
+          draw.text(
+              (80, buoy_y_values),
+              buoy_line,
+              fill="#a0d0ff",  # light cyan for highlight
+              font=font_buoy
+          )
+
+          # Original footer (shifted down a bit)
+          footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
+          draw.text(
+              (400, 830),  # shifted down to accommodate new section
+              footer_line,
+              fill=TEXT,
+              font=font_footer,
+              anchor="mm"
+          )
+
+          card.convert("RGB").save("wave_card.png", optimize=True)
+          EOF
 
       - name: Commit and push updated image
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: 'images/wave_forecast.png'
-          message: 'chore: update 7-day wave forecast + current buoy 41043 data [auto]'
-          default_author: github_actions
-          # No need for new_branch or push – action handles it automatically
+        run: |
+          if [ ! -f wave_card.png ]; then
+            echo "ERROR: wave_card.png not found — aborting commit"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add wave_card.png
+          git commit -m "Auto-update wave forecast card + current Buoy 41043 data" || echo "No changes to commit"
+          git push

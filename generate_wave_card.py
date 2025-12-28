@@ -9,10 +9,12 @@ print("DEBUG: Starting PART 1")
 
 print("DEBUG: Starting PART 1")
 
+print("DEBUG: Starting PART 1")
+
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast (new NOAA format)
+# PART 1: Fetch & Parse AMZ726 Forecast (NWS Marine Page)
 # ─────────────────────────────────────────────────────────────
-URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
+URL = "https://marine.weather.gov/MapClick.php?zoneid=AMZ726"
 FALLBACK = "Wave forecast temporarily unavailable."
 
 forecast_text = FALLBACK
@@ -22,66 +24,36 @@ try:
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # NOAA now places the forecast inside <pre> blocks
-    pre = soup.find("pre")
-    if pre:
-        raw = pre.get_text("\n")
-        raw = raw.replace("feet", "ft")
+    # NWS Marine page stores forecast in <div id="detailed-forecast-body">
+    container = soup.find("div", id="detailed-forecast-body")
 
-        # Extract only AMZ726 section
-        pattern = r"(AMZ726[\s\S]*?)(AMZ7\d{2}|$$)"
-        m = re.search(pattern, raw, re.IGNORECASE)
-        if m:
-            block = m.group(1)
-        else:
-            block = raw  # fallback: use entire <pre>
+    if container:
+        periods = container.find_all("div", class_="row-forecast")
 
-        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
-
-        # Forecast period labels
-        LABELS = [
-            "TODAY", "TONIGHT", "THIS AFTERNOON",
-            "MONDAY", "MONDAY NIGHT",
-            "TUESDAY", "TUESDAY NIGHT",
-            "WEDNESDAY", "WEDNESDAY NIGHT",
-            "THURSDAY", "THURSDAY NIGHT",
-            "FRIDAY", "FRIDAY NIGHT",
-            "SATURDAY", "SATURDAY NIGHT",
-            "SUNDAY", "SUNDAY NIGHT"
-        ]
-
-        periods = []
-        current_label = None
-        current_text = []
-
-        def is_label(line):
-            return any(line.upper().startswith(lbl) for lbl in LABELS)
-
-        for line in lines:
-            if is_label(line):
-                if current_label and current_text:
-                    periods.append((current_label, " ".join(current_text)))
-                current_label = line
-                current_text = []
-            else:
-                if current_label:
-                    current_text.append(line)
-
-        if current_label and current_text:
-            periods.append((current_label, " ".join(current_text)))
-
-        # Build final text
         final_lines = []
-        for label, txt in periods[:7]:
-            # Try to extract seas
+
+        for p in periods[:7]:  # first 7 periods
+            name = p.find("div", class_="forecast-label")
+            text = p.find("div", class_="forecast-text")
+
+            if not name or not text:
+                continue
+
+            label = name.get_text(strip=True)
+            txt = text.get_text(" ", strip=True)
+
+            # Normalize feet
+            txt = txt.replace("feet", "ft").replace("foot", "ft")
+
+            # Extract seas if present
             seas = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*ft", txt, re.IGNORECASE)
             if seas:
                 final_lines.append(f"{label}: Seas {seas.group(1)}–{seas.group(2)} ft")
             else:
-                short = txt.replace("\n", " ")
-                if len(short) > 90:
-                    short = short[:90] + "..."
-                final_lines.append(f"{label}: {short}")
+                # Shorten long text
+                if len(txt) > 120:
+                    txt = txt[:120] + "..."
+                final_lines.append(f"{label}: {txt}")
 
         if final_lines:
             forecast_text = "\n".join(final_lines)

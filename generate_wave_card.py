@@ -226,7 +226,7 @@ except:
 TEXT = "#000000"  # high contrast
 
 # Header
-draw.text((400, 180), "Marine Forecast | Coastal Waters East of Fajardo (AMZ726)", fill=TEXT, font=ImageFont.truetype("DejaVuSans.ttf", 28), anchor="mm")
+draw.text((400, 180), "Marine Forecast | Coastal Waters East of Fajardo (AMZ726)", fill=TEXT, font=ImageFont.truetype("DejaVuSans.ttf", 26), anchor="mm")
 draw.text((400, 220), "Today • Tonight • Tomorrow", fill="#555555", font=font_footer, anchor="mm")
 
 # Forecast text

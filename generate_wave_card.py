@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (latest valid spectral data)
+# PART 2: Fetch Current Buoy 41043 Data (fully dynamic + error-proof)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -97,48 +97,64 @@ try:
                 rows.append(parts)
 
     if header and rows:
-        # Convert rows into dicts with timestamps
         parsed = []
+
         for parts in rows:
             row = {header[i]: parts[i] for i in range(len(header))}
 
-            # Skip invalid rows
-            if row.get("WVHT") in ["MM", "99.00"]:
-                continue
-
-            # Build datetime for sorting
+            # Build timestamp safely
             try:
                 ts = datetime(
-                    int(row["YY"]),
-                    int(row["MM"]),
-                    int(row["DD"]),
-                    int(row["hh"]),
-                    int(row["mm"])
+                    int(row.get("YY", 0)),
+                    int(row.get("MM", 0)),
+                    int(row.get("DD", 0)),
+                    int(row.get("hh", 0)),
+                    int(row.get("mm", 0))
                 )
                 parsed.append((ts, row))
             except:
                 continue
 
-        # Sort by timestamp descending → newest first
         parsed.sort(key=lambda x: x[0], reverse=True)
 
         if parsed:
-            latest_row = parsed[0][1]
+            latest = parsed[0][1]
 
-            wvht = latest_row.get("WVHT")  # significant wave height (m)
-            swh  = latest_row.get("SwH")   # swell height (m)
-            swp  = latest_row.get("SwP")   # swell period (s)
-            swd  = latest_row.get("SwD")   # swell direction (deg)
-
+            # Helper
             def m_to_ft(m):
                 try:
                     return round(float(m) * 3.28084, 1)
                 except:
                     return None
 
+            # Extract dynamically — only if column exists
+            wvht = latest.get("WVHT")
+            swh  = latest.get("SwH")
+            swp  = latest.get("SwP")
+            swd  = latest.get("SwD")
+
             # Sig height
             if wvht and wvht not in ["MM", "99.00"]:
-                sig
+                h_ft = m_to_ft(wvht)
+                if h_ft:
+                    sig_height = f"{h_ft} ft"
+
+            # Swell height
+            if swh and swh not in ["MM", "99.00"]:
+                swh_ft = m_to_ft(swh)
+                if swh_ft:
+                    swell_height = f"{swh_ft} ft"
+
+            # Swell period
+            if swp and swp not in ["MM", "99"]:
+                swell_period = f"{swp} sec"
+
+            # Swell direction
+            if swd and swd not in ["MM", "999"]:
+                buoy_dir = f"{swd}°"
+
+except Exception as e:
+    print("Buoy spec parse error:", e)
 
 
 # ─────────────────────────────────────────────────────────────

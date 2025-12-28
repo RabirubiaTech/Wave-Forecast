@@ -325,7 +325,7 @@ draw.text(
     (400, 180),
     "Marine Forecast | Coastal Waters East of Fajardo (AMZ726)",
     fill=TEXT,
-    font=ImageFont.truetype("DejaVuSans.ttf", 18),
+    font=ImageFont.truetype("DejaVuSans.ttf", 20),
     anchor="mm"
 )
 

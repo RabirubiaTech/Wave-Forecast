@@ -147,7 +147,7 @@ try:
     font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
     font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body     = ImageFont.truetype("DejaVuSans.ttf", 22)   # reduced for fit
+    font_body     = ImageFont.truetype("DejaVuSans.ttf", 18)   # reduced for fit
     font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
     font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 18)
 except Exception:

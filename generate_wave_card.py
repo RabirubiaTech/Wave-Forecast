@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Reverted to last good working 41043 parsing (with fallback)
+# PART 2: Reverted to last good working 41043 parsing (with current fallback)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -83,48 +83,53 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    # First try old reliable way (cellpadding='5')
+    table = None
+
+    # Strategy 1: Old reliable (when it worked) - cellpadding='5'
     table = buoy_soup.find('table', {'cellpadding': '5'})
 
-    # Fallback if cellpadding missing: take the table with WVHT or many rows
+    # Strategy 2: Fallback - table with WVHT or "Significant Wave Height"
     if not table:
         for tbl in buoy_soup.find_all("table"):
-            if "WVHT" in tbl.get_text() or len(tbl.find_all("tr")) > 5:
+            tbl_text = tbl.get_text()
+            if "WVHT" in tbl_text or "Significant Wave Height" in tbl_text:
                 table = tbl
                 break
 
+    # Strategy 3: Last resort - largest table with many rows
+    if not table:
+        tables = buoy_soup.find_all("table")
+        if tables:
+            table = max(tables, key=lambda t: len(t.find_all("tr")))
+
     if table:
-        rows = table.find_all('tr')
-        for row in rows[1:]:  # skip header
-            cols = row.find_all('td')
-            if len(cols) > 10:  # old structure check
-                wvht = cols[8].get_text(strip=True)   # Significant Wave Height
-                swh  = cols[10].get_text(strip=True)  # Swell Height
-                swp  = cols[11].get_text(strip=True)  # Swell Period
-                if wvht and wvht != 'MM':
-                    sig_height = f"{wvht} ft"
-                if swh and swh != 'MM':
-                    swell_height = f"{swh} ft"
-                if swp and swp != 'MM':
-                    swell_period = f"{swp} sec"
-                buoy_dir = "NNW"  # typical fallback; can be parsed if needed
-                break
-            elif len(cols) >= 5:  # fallback to current structure
-                wvht = cols[1].get_text(strip=True)
-                swh  = cols[2].get_text(strip=True)
-                swp  = cols[3].get_text(strip=True)
-                swd  = cols[4].get_text(strip=True)
-                if wvht and wvht != 'MM':
-                    sig_height = f"{wvht} ft"
-                if swh and swh != 'MM':
-                    swell_height = f"{swh} ft"
-                if swp and swp != 'MM':
-                    swell_period = f"{swp} sec"
-                if swd and swd != 'MM':
-                    buoy_dir = swd
-                break
+        rows = table.find_all("tr")
+        if len(rows) >= 2:
+            # Try old successful indices first (when it pulled data)
+            cols = rows[1].find_all("td")
+            if len(cols) > 11:
+                wvht = cols[8].get_text(strip=True)
+                swh  = cols[10].get_text(strip=True)
+                swp  = cols[11].get_text(strip=True)
+                swd  = cols[12].get_text(strip=True) if len(cols) > 12 else "N/A"
+            else:
+                # Current structure fallback
+                if len(cols) >= 5:
+                    wvht = cols[1].get_text(strip=True)
+                    swh  = cols[2].get_text(strip=True)
+                    swp  = cols[3].get_text(strip=True)
+                    swd  = cols[4].get_text(strip=True)
+
+            if 'wvht' in locals() and wvht and wvht not in ["MM", "-"]:
+                sig_height = f"{wvht} ft"
+            if 'swh' in locals() and swh and swh not in ["MM", "-"]:
+                swell_height = f"{swh} ft"
+            if 'swp' in locals() and swp and swp not in ["MM", "-"]:
+                swell_period = f"{swp} sec"
+            if 'swd' in locals() and swd and swd not in ["MM", "-"]:
+                buoy_dir = swd
 except Exception:
-    pass  # stay N/A on failure
+    pass
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation

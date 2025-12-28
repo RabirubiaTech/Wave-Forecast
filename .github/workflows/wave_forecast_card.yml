@@ -1,4 +1,4 @@
-name: Update Wave Forecast Card
+name: Update Wave Forecast Card Image
 
 on:
   schedule:
@@ -6,28 +6,35 @@ on:
   workflow_dispatch:
 
 jobs:
-  generate-image:
+  generate-and-commit-image:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install requests beautifulsoup4 pillow
-
-      - name: Generate image
-        run: python generate_wave_card.py
-
-      - name: Commit image
+      - name: Install Python dependencies
         run: |
+          pip install pillow requests beautifulsoup4
+
+      - name: Generate Wave Forecast Card
+        run: python generate_wave_card.py   # ← must match the file name exactly!
+
+      - name: Commit and push updated image
+        run: |
+          if [ ! -f wave_card.png ]; then
+            echo "ERROR: wave_card.png not found"
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add wave_card.png
-          git commit -m "Update wave card + buoy 41043" || echo "No changes"
-          git push || echo "Push failed (likely no change)"
+          git commit -m "Auto-update wave forecast card + current Buoy 41043 data" || echo "No changes to commit"
+          git push

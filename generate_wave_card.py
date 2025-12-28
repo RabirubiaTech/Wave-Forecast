@@ -44,49 +44,46 @@ def main():
     except Exception as e:
         print(f"Forecast error: {e}")
 
-    # ─────────────────────────────────────────────────────────────
-    # PART 2: Buoy 41043 (REALTIME)
-    # ─────────────────────────────────────────────────────────────
-    # ─────────────────────────────────────────────────────────────
-# FIXED Buoy 41043 parsing – matches current table as of Dec 28 2025
-# ─────────────────────────────────────────────────────────────
-sig_height = swell_height = swell_period = buoy_dir = "N/A"
-
-try:
-    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-    buoy_r = requests.get(buoy_url, timeout=15)
-    buoy_r.raise_for_status()
-    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
-
-    # Find wave table by searching for 'WVHT' in content
-    table = None
-    for tbl in buoy_soup.find_all("table"):
-        if "WVHT" in tbl.get_text():
-            table = tbl
-            break
-
-    if table:
-        rows = table.find_all("tr")
-        if len(rows) >= 2:  # header + data rows
-            # Most recent observation = first data row (index 1)
-            cols = rows[1].find_all("td")
-            if len(cols) >= 5:
-                # Correct indices (0-based):
-                wvht = cols[1].get_text(strip=True)  # WVHT ft
-                swh  = cols[2].get_text(strip=True)  # SwH ft
-                swp  = cols[3].get_text(strip=True)  # SwP sec
-                swd  = cols[4].get_text(strip=True)  # SwD
-
-                if wvht and wvht not in ["MM", "-", ""]: 
-                    sig_height = f"{wvht} ft"
-                if swh and swh not in ["MM", "-", ""]: 
-                    swell_height = f"{swh} ft"
-                if swp and swp not in ["MM", "-", ""]: 
-                    swell_period = f"{swp} sec"
-                if swd and swd not in ["MM", "-", ""]: 
-                    buoy_dir = swd
-except Exception:
-    pass  # Keep N/A on failure
+   # FIXED: Buoy 41043 – exact parsing for current table (Dec 28 2025)
+    sig_height = swell_height = swell_period = buoy_dir = "N/A"
+    
+    try:
+        buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
+        buoy_r = requests.get(buoy_url, timeout=15)
+        buoy_r.raise_for_status()
+        buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
+    
+        # Search for table containing 'WVHT' (reliable marker)
+        table = None
+        for tbl in buoy_soup.find_all("table"):
+            if "WVHT" in tbl.get_text():
+                table = tbl
+                break
+    
+        if table:
+            rows = table.find_all("tr")
+            if len(rows) >= 2:
+                cols = rows[1].find_all("td")  # first data row = latest
+                if len(cols) >= 5:
+                    wvht = cols[1].get_text(strip=True)
+                    swh  = cols[2].get_text(strip=True)
+                    swp  = cols[3].get_text(strip=True)
+                    swd  = cols[4].get_text(strip=True)
+    
+                    if wvht and wvht not in ["MM", "-", ""]:
+                        sig_height = f"{wvht} ft"
+                    if swh and swh not in ["MM", "-", ""]:
+                        swell_height = f"{swh} ft"
+                    if swp and swp not in ["MM", "-", ""]:
+                        swell_period = f"{swp} sec"
+                    if swd and swd not in ["MM", "-", ""]:
+                        buoy_dir = swd
+    
+        # Debug print (remove after testing)
+        # print(f"Parsed: Sig={sig_height}, Swell={swell_height}, Period={swell_period}, Dir={buoy_dir}")
+    except Exception as e:
+        # print(f"Buoy error: {str(e)}")  # Uncomment for logs
+        pass
 
     # ─────────────────────────────────────────────────────────────
     # PART 3: IMAGE (NEVER FAIL)

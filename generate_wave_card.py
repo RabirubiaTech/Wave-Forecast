@@ -73,43 +73,29 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Last good working 41043 parsing (high columns priority) + current fallback
+# PART 2: Fetch Current Buoy 41043 Data (validated for current page, with correct table selection)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
 try:
-    buoy_url = 'https://www.ndbc.noaa.gov/station_page.php?station=41043'
-    response = requests.get(buoy_url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
+    buoy_r = requests.get(buoy_url, timeout=15)
+    buoy_r.raise_for_status()
+    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    # Priority: Last good working table (cellpadding='5')
-    table = soup.find('table', {'cellpadding': '5'})
-
-    # Fallback: Table containing "SwH ft" or "SwP sec" (unique to full wave table)
-    if not table:
-        for tbl in soup.find_all('table'):
-            tbl_text = tbl.get_text()
-            if "SwH ft" in tbl_text or "SwP sec" in tbl_text:
-                table = tbl
-                break
+    # Select the table containing "WVHT ft" in the header row
+    table = None
+    for tbl in buoy_soup.find_all("table"):
+        header_row = tbl.find("tr")
+        if header_row and "WVHT ft" in header_row.get_text():
+            table = tbl
+            break
 
     if table:
-        rows = table.find_all('tr')
+        rows = table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all('td')
-            if len(cols) > 10:
-                # Last good working indices (when it pulled real data)
-                wvht = cols[8].text.strip()
-                swh = cols[10].text.strip()
-                swp = cols[11].text.strip()
-                if wvht and wvht != 'MM':
-                    sig_height = f"{wvht} ft"
-                if swh and swh != 'MM':
-                    swell_height = f"{swh} ft"
-                if swp and swp != 'MM':
-                    swell_period = f"{swp} sec"
-            elif len(cols) >= 5:
-                # Current structure fallback
+            cols = rows[1].find_all("td")
+            if len(cols) >= 5:
                 wvht = cols[1].get_text(strip=True)
                 swh = cols[2].get_text(strip=True)
                 swp = cols[3].get_text(strip=True)
@@ -201,5 +187,4 @@ draw.text(
     font=font_footer,
     anchor="mm"
 )
-
 card.convert("RGB").save("wave_card.png", optimize=True)

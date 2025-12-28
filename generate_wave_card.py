@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast (unchanged)
+# PART 1: Fetch & Parse AMZ726 Forecast (unchanged – working)
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -71,40 +71,9 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Buoy 41043 Data – direction now full compass name
+# PART 2: Buoy 41043 – CORRECT current parsing (validated structure)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
-
-# Compass code to full name mapping
-COMPASS_MAP = {
-    "N": "North",
-    "NNE": "North-Northeast",
-    "NE": "Northeast",
-    "ENE": "East-Northeast",
-    "E": "East",
-    "ESE": "East-Southeast",
-    "SE": "Southeast",
-    "SSE": "South-Southeast",
-    "S": "South",
-    "SSW": "South-Southwest",
-    "SW": "Southwest",
-    "WSW": "West-Southwest",
-    "W": "West",
-    "WNW": "West-Northwest",
-    "NW": "Northwest",
-    "NNW": "North-Northwest",
-    # Numeric fallback (e.g. "340" → North-Northwest)
-    "0": "North",
-    "360": "North",
-    "45": "Northeast",
-    "90": "East",
-    "135": "Southeast",
-    "180": "South",
-    "225": "Southwest",
-    "270": "West",
-    "315": "Northwest",
-    # Add more if needed
-}
 
 try:
     buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
@@ -112,6 +81,7 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
+    # Find wave table by "WVHT" marker (reliable)
     table = None
     for tbl in buoy_soup.find_all("table"):
         if "WVHT" in tbl.get_text():
@@ -121,12 +91,13 @@ try:
     if table:
         rows = table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")
+            cols = rows[1].find_all("td")  # latest row
             if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)
-                swh  = cols[2].get_text(strip=True)
-                swp  = cols[3].get_text(strip=True)
-                swd  = cols[4].get_text(strip=True)
+                # Correct indices (0-based, confirmed from live page)
+                wvht = cols[1].get_text(strip=True)  # Significant Wave Height
+                swh  = cols[2].get_text(strip=True)  # Swell Height
+                swp  = cols[3].get_text(strip=True)  # Swell Period
+                swd  = cols[4].get_text(strip=True)  # Swell Direction
 
                 if wvht and wvht not in ["MM", "-"]:
                     sig_height = f"{wvht} ft"
@@ -135,13 +106,12 @@ try:
                 if swp and swp not in ["MM", "-"]:
                     swell_period = f"{swp} sec"
                 if swd and swd not in ["MM", "-"]:
-                    # Convert to full compass name
-                    buoy_dir = COMPASS_MAP.get(swd.upper(), swd)  # fallback to code if not found
+                    buoy_dir = swd
 except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: Image Generation (unchanged)
+# PART 3: Image Generation (unchanged – already good)
 # ─────────────────────────────────────────────────────────────
 try:
     bg_data = requests.get(

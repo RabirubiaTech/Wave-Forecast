@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: AMZ726 Forecast (original logic - confirmed working)
+# PART 1: Fetch & Parse AMZ726 Forecast (original logic)
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -77,45 +77,50 @@ try:
         if final_lines:
             forecast_text = "\n".join(final_lines)
 except Exception:
-    pass  # keep fallback
+    pass  # keep fallback text
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Current Buoy 41043 data (updated for Dec 2025 table structure)
-# Columns: 0=TIME, 1=WVHT ft, 2=SwH ft, 3=SwP sec, 4=SwD, ...
+# PART 2: Fetch Current Buoy 41043 Data (updated for current structure)
+# Columns: 0=TIME, 1=WVHT ft, 2=SwH ft, 3=SwP sec, 4=SwD
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
 try:
     buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-    buoy_r = requests.get(buoy_url, timeout=12)
+    buoy_r = requests.get(buoy_url, timeout=15)
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
+    # Find the wave observations table by looking for WVHT marker
     table = None
-    for t in buoy_soup.find_all("table"):
-        if "WVHT" in t.get_text():
-            table = t
+    for tbl in buoy_soup.find_all("table"):
+        if "WVHT" in tbl.get_text():
+            table = tbl
             break
 
     if table:
         rows = table.find_all("tr")
-        if len(rows) >= 2:
-            cols = rows[1].find_all("td")  # most recent row
+        if len(rows) >= 2:  # header + data
+            cols = rows[1].find_all("td")  # most recent observation
             if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)
-                swh  = cols[2].get_text(strip=True)
-                swp  = cols[3].get_text(strip=True)
-                swd  = cols[4].get_text(strip=True)
+                wvht = cols[1].get_text(strip=True)  # Significant Wave Height
+                swh  = cols[2].get_text(strip=True)  # Swell Height
+                swp  = cols[3].get_text(strip=True)  # Swell Period
+                swd  = cols[4].get_text(strip=True)  # Swell Direction
 
-                if wvht and wvht not in ["MM", "-", ""]: sig_height = f"{wvht} ft"
-                if swh  and swh  not in ["MM", "-", ""]: swell_height = f"{swh} ft"
-                if swp  and swp  not in ["MM", "-", ""]: swell_period = f"{swp} sec"
-                if swd  and swd  not in ["MM", "-", ""]: buoy_dir = swd
+                if wvht and wvht not in ["MM", "-", ""]:
+                    sig_height = f"{wvht} ft"
+                if swh and swh not in ["MM", "-", ""]:
+                    swell_height = f"{swh} ft"
+                if swp and swp not in ["MM", "-", ""]:
+                    swell_period = f"{swp} sec"
+                if swd and swd not in ["MM", "-", ""]:
+                    buoy_dir = swd
 except Exception:
-    pass
+    pass  # stay N/A on failure
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: Generate image (your original style + buoy section)
+# PART 3: Generate the card image
 # ─────────────────────────────────────────────────────────────
 try:
     bg_data = requests.get(
@@ -142,10 +147,10 @@ try:
     ).content
     logo = Image.open(io.BytesIO(logo_data)).convert("RGBA").resize((120, 120))
     card.paste(logo, (40, 40), logo)
-except:
+except Exception:
     pass
 
-# Fonts (safe fallback)
+# Fonts
 try:
     font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
     font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
@@ -158,20 +163,27 @@ except Exception:
 
 TEXT = "#0a1a2f"
 
+# Header & title
 draw.text((200, 80), datetime.now().strftime("%b %d, %Y"), fill=TEXT, font=font_title)
 draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
 draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
+# Forecast text
 draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=10)
 
-# Current buoy section at bottom
-buoy_y = 700  # Increase this number (e.g. 740-780) if text overlaps with forecast
-draw.rectangle([(60, buoy_y-20), (740, buoy_y+80)], fill=(0, 20, 60, 140))
-draw.text((80, buoy_y), "Current (Buoy 41043 – NE Puerto Rico)", fill="white", font=font_buoy)
+# Current buoy section
+buoy_y_title = 700   # ← adjust higher (720–780) if text overlaps with forecast
+buoy_y_value = buoy_y_title + 35
+
+draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
+draw.text((80, buoy_y_title), "Current (Buoy 41043 – NE Puerto Rico)", fill="white", font=font_buoy)
 
 buoy_text = f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}"
-draw.text((80, buoy_y+35), buoy_text, fill="#a0d0ff", font=font_buoy)
+draw.text((80, buoy_y_value), buoy_text, fill="#a0d0ff", font=font_buoy)
 
-draw.text((400, 880), "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours", fill=TEXT, font=font_footer, anchor="mm")
+# Footer
+footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
+draw.text((400, 880), footer_line, fill=TEXT, font=font_footer, anchor="mm")
 
+# Save
 card.convert("RGB").save("wave_card.png", optimize=True)

@@ -89,7 +89,7 @@ print("DEBUG: Forecast text preview:", forecast_text.splitlines()[0] if forecast
 # -------------------------------------------------------------
 # PART 2 — Buoy 41043 realtime2 (WVHT, DPD, MWD)
 # -------------------------------------------------------------
-print("DEBUG: Starting PART 2")
+print("DEBUG: Starting PART 2 (Buoy 41043)")
 
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 last_update_str = "N/A"
@@ -111,7 +111,6 @@ try:
             data_rows.append(ln)
 
     if header_tokens and data_rows:
-        print("DEBUG: Realtime2 header:", header_tokens)
 
         def idx(name):
             try:
@@ -155,7 +154,7 @@ try:
 
         if chosen:
             ts, parts = chosen
-            print("DEBUG: Chosen realtime2 row:", " ".join(parts))
+            print("DEBUG: Chosen 41043 row:", " ".join(parts))
 
             last_update_str = ts.strftime("%b %d, %Y at %H:%M AST")
 
@@ -179,6 +178,100 @@ except Exception as e:
     print("DEBUG: PART 2 error:", e)
 
 print("DEBUG: Finished PART 2:", sig_height, swell_height, swell_period, buoy_dir)
+
+
+# -------------------------------------------------------------
+# PART 2B — Buoy 41056 realtime2
+# -------------------------------------------------------------
+print("DEBUG: Starting PART 2B (Buoy 41056)")
+
+sig_height_56 = swell_height_56 = swell_period_56 = buoy_dir_56 = "N/A"
+last_update_56 = "N/A"
+
+try:
+    url_rt = "https://www.ndbc.noaa.gov/data/realtime2/41056.txt"
+    r_rt = requests.get(url_rt, timeout=15)
+    r_rt.raise_for_status()
+    lines_rt = r_rt.text.splitlines()
+
+    header_tokens = None
+    data_rows = []
+
+    for ln in lines_rt:
+        if ln.startswith("#YY"):
+            header_tokens = ln.lstrip("#").split()
+            continue
+        if header_tokens and not ln.startswith("#") and ln.strip():
+            data_rows.append(ln)
+
+    if header_tokens and data_rows:
+
+        def idx(name):
+            try:
+                return header_tokens.index(name)
+            except ValueError:
+                return None
+
+        i_yy   = idx("YY")
+        i_mm   = idx("MM")
+        i_dd   = idx("DD")
+        i_hh   = idx("hh")
+        i_min  = idx("mm")
+        i_wvht = idx("WVHT")
+        i_dpd  = idx("DPD")
+        i_mwd  = idx("MWD")
+
+        parsed_rows = []
+
+        for ln in data_rows:
+            parts = ln.split()
+            try:
+                yy  = int(parts[i_yy])
+                mm  = int(parts[i_mm])
+                dd  = int(parts[i_dd])
+                hh  = int(parts[i_hh])
+                mns = int(parts[i_min])
+                ts = datetime(yy, mm, dd, hh, mns)
+            except:
+                continue
+
+            parsed_rows.append((ts, parts))
+
+        parsed_rows.sort(key=lambda x: x[0], reverse=True)
+
+        chosen = None
+        for ts, parts in parsed_rows:
+            wvht_val = parts[i_wvht]
+            if wvht_val not in ["MM", "99.00"]:
+                chosen = (ts, parts)
+                break
+
+        if chosen:
+            ts, parts = chosen
+            print("DEBUG: Chosen 41056 row:", " ".join(parts))
+
+            last_update_56 = ts.strftime("%b %d, %Y at %H:%M AST")
+
+            wvht_val = parts[i_wvht]
+            dpd_val  = parts[i_dpd]
+            mwd_val  = parts[i_mwd]
+
+            if wvht_val not in ["MM", "99.00"]:
+                h_ft = m_to_ft(wvht_val)
+                if h_ft is not None:
+                    sig_height_56 = f"{h_ft} ft"
+                    swell_height_56 = sig_height_56
+
+            if dpd_val not in ["MM", "99"]:
+                swell_period_56 = f"{dpd_val} sec"
+
+            if mwd_val not in ["MM", "999"]:
+                buoy_dir_56 = f"{mwd_val}°"
+
+except Exception as e:
+    print("DEBUG: PART 2B error:", e)
+
+print("DEBUG: Finished PART 2B:", sig_height_56, swell_height_56, swell_period_56, buoy_dir_56)
 
 
 # -------------------------------------------------------------
@@ -225,27 +318,58 @@ except:
 
 TEXT = "#000000"  # high contrast
 
-# Header
-draw.text((400, 180), "Marine Forecast | Coastal Waters East of Fajardo (AMZ726)", fill=TEXT, font=ImageFont.truetype("DejaVuSans.ttf", 18), anchor="mm")
+# -------------------------------------------------------------
+# HEADER (your requested change)
+# -------------------------------------------------------------
+draw.text(
+    (400, 180),
+    "Marine Forecast | Coastal Waters East of Fajardo (AMZ726)",
+    fill=TEXT,
+    font=ImageFont.truetype("DejaVuSans.ttf", 18),
+    anchor="mm"
+)
+
 draw.text((400, 220), "Today • Tonight • Tomorrow", fill="#555555", font=font_footer, anchor="mm")
 
 # Forecast text
 draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, spacing=12)
 
-# Buoy block
-buoy_y_title = 700
-buoy_y_value = buoy_y_title + 35
 
-draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 80)], fill=(0, 20, 60, 140))
-draw.text((80, buoy_y_title), "Current (Buoy 41043 – NE of Puerto Rico)", fill="white", font=font_buoy)
+# -------------------------------------------------------------
+# BUOY 41043 BOX (moved upward)
+# -------------------------------------------------------------
+buoy1_y_title = 650
+buoy1_y_value = buoy1_y_title + 35
 
-sig_color = wave_color(sig_height)
-buoy_text = f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}"
-draw.text((80, buoy_y_value), buoy_text, fill=sig_color, font=font_buoy)
+draw.rectangle([(60, buoy1_y_title - 20), (740, buoy1_y_value + 80)], fill=(0, 20, 60, 140))
+draw.text((80, buoy1_y_title), "Current (Buoy 41043 – NE of Puerto Rico)", fill="white", font=font_buoy)
 
-draw.text((80, buoy_y_value + 35), f"Last updated: {last_update_str}", fill="#ffffff", font=font_footer)
+sig_color_43 = wave_color(sig_height)
+buoy_text_43 = f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}"
+draw.text((80, buoy1_y_value), buoy_text_43, fill=sig_color_43, font=font_buoy)
 
-# Footer
+draw.text((80, buoy1_y_value + 35), f"Last updated: {last_update_str}", fill="#ffffff", font=font_footer)
+
+
+# -------------------------------------------------------------
+# BUOY 41056 BOX (new)
+# -------------------------------------------------------------
+buoy2_y_title = buoy1_y_value + 110
+buoy2_y_value = buoy2_y_title + 35
+
+draw.rectangle([(60, buoy2_y_title - 20), (740, buoy2_y_value + 80)], fill=(0, 20, 60, 140))
+draw.text((80, buoy2_y_title), "Current (Buoy 41056 – South of Puerto Rico)", fill="white", font=font_buoy)
+
+sig_color_56 = wave_color(sig_height_56)
+buoy_text_56 = f"Sig: {sig_height_56} | Swell: {swell_height_56} | {swell_period_56} | {buoy_dir_56}"
+draw.text((80, buoy2_y_value), buoy_text_56, fill=sig_color_56, font=font_buoy)
+
+draw.text((80, buoy2_y_value + 35), f"Last updated: {last_update_56}", fill="#ffffff", font=font_footer)
+
+
+# -------------------------------------------------------------
+# FOOTER
+# -------------------------------------------------------------
 draw.text((400, 880), "RabirubiaWeather.com • Auto-updated", fill=TEXT, font=font_footer, anchor="mm")
 
 card.convert("RGB").save("wave_card.png", optimize=True)

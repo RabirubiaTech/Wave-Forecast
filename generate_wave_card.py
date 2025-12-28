@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast (unchanged – working)
+# PART 1: Fetch & Parse AMZ726 Forecast
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -71,7 +71,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Buoy 41043 – CORRECT current parsing (validated structure)
+# PART 2: Buoy 41043 – FIXED current parsing
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -81,7 +81,6 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    # Find wave table by "WVHT" marker (reliable)
     table = None
     for tbl in buoy_soup.find_all("table"):
         if "WVHT" in tbl.get_text():
@@ -91,13 +90,12 @@ try:
     if table:
         rows = table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")  # latest row
+            cols = rows[1].find_all("td")
             if len(cols) >= 5:
-                # Correct indices (0-based, confirmed from live page)
-                wvht = cols[1].get_text(strip=True)  # Significant Wave Height
-                swh  = cols[2].get_text(strip=True)  # Swell Height
-                swp  = cols[3].get_text(strip=True)  # Swell Period
-                swd  = cols[4].get_text(strip=True)  # Swell Direction
+                wvht = cols[1].get_text(strip=True)
+                swh  = cols[2].get_text(strip=True)
+                swp  = cols[3].get_text(strip=True)
+                swd  = cols[4].get_text(strip=True)
 
                 if wvht and wvht not in ["MM", "-"]:
                     sig_height = f"{wvht} ft"
@@ -111,7 +109,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: Image Generation (unchanged – already good)
+# PART 3: Image Generation
 # ─────────────────────────────────────────────────────────────
 try:
     bg_data = requests.get(

@@ -71,7 +71,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Buoy 41043 – FIXED current parsing
+# PART 2: Buoy 41043 – FIXED & VALIDATED parsing (current columns)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -81,6 +81,7 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
+    # Find wave table by "WVHT" marker
     table = None
     for tbl in buoy_soup.find_all("table"):
         if "WVHT" in tbl.get_text():

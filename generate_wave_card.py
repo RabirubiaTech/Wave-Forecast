@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast (improved Wave Detail extraction)
+# PART 1: Fetch & Parse AMZ726 Forecast (unchanged)
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -54,13 +54,11 @@ try:
 
         final_lines = []
         for label, txt in cleaned:
-            # More robust: capture full Wave Detail content after the keyword
-            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$|Scattered|Isolated|through)", txt, re.I | re.DOTALL)
+            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$|Scattered|Isolated)", txt, re.I | re.DOTALL)
             if wave_match:
                 detail = wave_match.group(1).strip()
                 final_lines.append(f"{label}: {detail}")
             else:
-                # Fallback to seas description if no Wave Detail
                 seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*feet", txt, re.I)
                 if seas_match:
                     final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match.group(2)} ft")
@@ -73,9 +71,40 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Buoy 41043 – current correct parsing (validated structure)
+# PART 2: Buoy 41043 Data – direction now full compass name
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
+
+# Compass code to full name mapping
+COMPASS_MAP = {
+    "N": "North",
+    "NNE": "North-Northeast",
+    "NE": "Northeast",
+    "ENE": "East-Northeast",
+    "E": "East",
+    "ESE": "East-Southeast",
+    "SE": "Southeast",
+    "SSE": "South-Southeast",
+    "S": "South",
+    "SSW": "South-Southwest",
+    "SW": "Southwest",
+    "WSW": "West-Southwest",
+    "W": "West",
+    "WNW": "West-Northwest",
+    "NW": "Northwest",
+    "NNW": "North-Northwest",
+    # Numeric fallback (e.g. "340" → North-Northwest)
+    "0": "North",
+    "360": "North",
+    "45": "Northeast",
+    "90": "East",
+    "135": "Southeast",
+    "180": "South",
+    "225": "Southwest",
+    "270": "West",
+    "315": "Northwest",
+    # Add more if needed
+}
 
 try:
     buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
@@ -92,13 +121,12 @@ try:
     if table:
         rows = table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")  # most recent observation
+            cols = rows[1].find_all("td")
             if len(cols) >= 5:
-                # Correct current indices (0-based)
-                wvht = cols[1].get_text(strip=True)  # Significant Wave Height
-                swh  = cols[2].get_text(strip=True)  # Swell Height
-                swp  = cols[3].get_text(strip=True)  # Swell Period
-                swd  = cols[4].get_text(strip=True)  # Swell Direction
+                wvht = cols[1].get_text(strip=True)
+                swh  = cols[2].get_text(strip=True)
+                swp  = cols[3].get_text(strip=True)
+                swd  = cols[4].get_text(strip=True)
 
                 if wvht and wvht not in ["MM", "-"]:
                     sig_height = f"{wvht} ft"
@@ -107,12 +135,13 @@ try:
                 if swp and swp not in ["MM", "-"]:
                     swell_period = f"{swp} sec"
                 if swd and swd not in ["MM", "-"]:
-                    buoy_dir = swd
+                    # Convert to full compass name
+                    buoy_dir = COMPASS_MAP.get(swd.upper(), swd)  # fallback to code if not found
 except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: Image Generation – adjusted for fit (smaller font, better margins)
+# PART 3: Image Generation (unchanged)
 # ─────────────────────────────────────────────────────────────
 try:
     bg_data = requests.get(
@@ -142,12 +171,12 @@ try:
 except Exception:
     pass
 
-# Fonts – smaller for forecast text to fit nicely
+# Fonts
 try:
     font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
     font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body     = ImageFont.truetype("DejaVuSans.ttf", 18)   # reduced for fit
+    font_body     = ImageFont.truetype("DejaVuSans.ttf", 22)
     font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
     font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 18)
 except Exception:
@@ -162,15 +191,8 @@ draw.text((400, 220), "(Forecast starting from TODAY - Real-time current below)"
 
 draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
-# Forecast text – better margins & spacing
-draw.multiline_text(
-    (100, 300),  # left margin 100 → more space
-    forecast_text,
-    fill=TEXT,
-    font=font_body,
-    align="left",
-    spacing=28   # increased line spacing
-)
+# Forecast text
+draw.multiline_text((100, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=28)
 
 # Bottom section: Current Buoy 41043
 buoy_y_title = 700

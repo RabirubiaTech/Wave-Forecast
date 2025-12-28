@@ -73,38 +73,34 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (stable)
+# PART 2: Fetch Current Buoy 41043 Data (last good working version, adjusted for current page)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 try:
-    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-    buoy_r = requests.get(buoy_url, timeout=15)
-    buoy_r.raise_for_status()
-    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
-
+    buoy_url = 'https://www.ndbc.noaa.gov/station_page.php?station=41043'
+    response = requests.get(buoy_url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    # Find the latest observations table (adjusted for no cellpadding – search for "WVHT ft")
     table = None
-    for tbl in buoy_soup.find_all("table"):
-        if "SwH" in tbl.get_text() or "SwP" in tbl.get_text() or "Significant Wave Height" in tbl.get_text():
+    for tbl in soup.find_all('table'):
+        if "WVHT ft" in tbl.get_text():
             table = tbl
             break
-
     if table:
-        rows = table.find_all("tr")
-        if len(rows) >= 2:
-            cols = rows[1].find_all("td")
+        rows = table.find_all('tr')
+        for row in rows[1:]: # skip header
+            cols = row.find_all('td')
             if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)
-                swh = cols[2].get_text(strip=True)
-                swp = cols[3].get_text(strip=True)
-                swd = cols[4].get_text(strip=True)
-                if wvht and wvht not in ["MM", "-"]:
+                wvht = cols[1].text.strip() # Significant Wave Height
+                swh = cols[2].text.strip() # Swell Height
+                swp = cols[3].text.strip() # Swell Period
+                swd = cols[4].text.strip() # Swell Direction
+                if wvht and wvht != 'MM' and swh != 'MM' and swp != 'MM':
                     sig_height = f"{wvht} ft"
-                if swh and swh not in ["MM", "-"]:
                     swell_height = f"{swh} ft"
-                if swp and swp not in ["MM", "-"]:
                     swell_period = f"{swp} sec"
-                if swd and swd not in ["MM", "-"]:
-                    buoy_dir = swd
+                    buoy_dir = swd if swd != '-' else "N/A"
+                    break
 except Exception:
     pass
 

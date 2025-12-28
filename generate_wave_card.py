@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (fully dynamic + error-proof)
+# PART 2: Fetch Current Buoy 41043 Data (crash-proof version)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -91,10 +91,15 @@ try:
         if ln.startswith("#YY"):
             header = ln.lstrip("#").split()
             continue
+
         if header and ln.strip() and not ln.startswith("#"):
             parts = ln.split()
-            if len(parts) >= len(header):
-                rows.append(parts)
+
+            # Skip rows shorter than header
+            if len(parts) < len(header):
+                continue
+
+            rows.append(parts)
 
     if header and rows:
         parsed = []
@@ -104,30 +109,30 @@ try:
 
             # Build timestamp safely
             try:
-                ts = datetime(
-                    int(row.get("YY", 0)),
-                    int(row.get("MM", 0)),
-                    int(row.get("DD", 0)),
-                    int(row.get("hh", 0)),
-                    int(row.get("mm", 0))
-                )
+                YY = int(row.get("YY", "0"))
+                MM = int(row.get("MM", "0"))
+                DD = int(row.get("DD", "0"))
+                hh = int(row.get("hh", "0"))
+                mm = int(row.get("mm", "0"))
+
+                ts = datetime(YY, MM, DD, hh, mm)
                 parsed.append((ts, row))
             except:
                 continue
 
+        # Sort newest first
         parsed.sort(key=lambda x: x[0], reverse=True)
 
         if parsed:
             latest = parsed[0][1]
 
-            # Helper
             def m_to_ft(m):
                 try:
                     return round(float(m) * 3.28084, 1)
                 except:
                     return None
 
-            # Extract dynamically — only if column exists
+            # Extract dynamically
             wvht = latest.get("WVHT")
             swh  = latest.get("SwH")
             swp  = latest.get("SwP")

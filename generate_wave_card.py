@@ -47,27 +47,46 @@ def main():
     # ─────────────────────────────────────────────────────────────
     # PART 2: Buoy 41043 (REALTIME)
     # ─────────────────────────────────────────────────────────────
-    sig_height = swell_height = swell_period = buoy_dir = "N/A"
+    # ─────────────────────────────────────────────────────────────
+# FIXED Buoy 41043 parsing – matches current table as of Dec 28 2025
+# ─────────────────────────────────────────────────────────────
+sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
-    try:
-        r = requests.get(
-            "https://www.ndbc.noaa.gov/data/realtime2/41043.txt", timeout=15
-        )
-        lines = r.text.strip().splitlines()
-        h = lines[0].split()
-        d = lines[2].split()
-        c = {k: i for i, k in enumerate(h)}
+try:
+    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
+    buoy_r = requests.get(buoy_url, timeout=15)
+    buoy_r.raise_for_status()
+    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-        def v(k):
-            x = d[c[k]] if k in c else None
-            return None if x in ["MM", "-", ""] else x
+    # Find wave table by searching for 'WVHT' in content
+    table = None
+    for tbl in buoy_soup.find_all("table"):
+        if "WVHT" in tbl.get_text():
+            table = tbl
+            break
 
-        if v("WVHT"): sig_height = f"{v('WVHT')} ft"
-        if v("SwH"):  swell_height = f"{v('SwH')} ft"
-        if v("SwP"):  swell_period = f"{v('SwP')} sec"
-        if v("SwD"):  buoy_dir = v("SwD")
-    except Exception as e:
-        print(f"Buoy error: {e}")
+    if table:
+        rows = table.find_all("tr")
+        if len(rows) >= 2:  # header + data rows
+            # Most recent observation = first data row (index 1)
+            cols = rows[1].find_all("td")
+            if len(cols) >= 5:
+                # Correct indices (0-based):
+                wvht = cols[1].get_text(strip=True)  # WVHT ft
+                swh  = cols[2].get_text(strip=True)  # SwH ft
+                swp  = cols[3].get_text(strip=True)  # SwP sec
+                swd  = cols[4].get_text(strip=True)  # SwD
+
+                if wvht and wvht not in ["MM", "-", ""]: 
+                    sig_height = f"{wvht} ft"
+                if swh and swh not in ["MM", "-", ""]: 
+                    swell_height = f"{swh} ft"
+                if swp and swp not in ["MM", "-", ""]: 
+                    swell_period = f"{swp} sec"
+                if swd and swd not in ["MM", "-", ""]: 
+                    buoy_dir = swd
+except Exception:
+    pass  # Keep N/A on failure
 
     # ─────────────────────────────────────────────────────────────
     # PART 3: IMAGE (NEVER FAIL)

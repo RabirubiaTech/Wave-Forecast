@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (alternative way – search for full header row)
+# PART 2: Fetch Current Buoy 41043 Data (robust version)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -81,35 +81,52 @@ try:
     buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
     buoy_r = requests.get(buoy_url, timeout=15)
     buoy_r.raise_for_status()
-    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
+    soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    table = None
-    for tbl in buoy_soup.find_all("table"):
-        # Check if the header row contains "WVHT ft" or "Significant Wave Height"
-        header_row = tbl.find("tr")
-        if header_row and ("WVHT ft" in header_row.get_text() or "Significant Wave Height" in header_row.get_text()):
-            table = tbl
+    # Look for any table containing WVHT, SwH, SwP, SwD
+    target_table = None
+    for tbl in soup.find_all("table"):
+        header = tbl.find("tr")
+        if not header:
+            continue
+
+        header_text = header.get_text().lower()
+
+        if any(key in header_text for key in ["wvht", "swh", "swp", "swd"]):
+            target_table = tbl
             break
 
-    if table:
-        rows = table.find_all("tr")
+    if target_table:
+        rows = target_table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")
-            if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)
-                swh = cols[2].get_text(strip=True)
-                swp = cols[3].get_text(strip=True)
-                swd = cols[4].get_text(strip=True)
-                if wvht and wvht not in ["MM", "-"]:
-                    sig_height = f"{wvht} ft"
-                if swh and swh not in ["MM", "-"]:
-                    swell_height = f"{swh} ft"
-                if swp and swp not in ["MM", "-"]:
-                    swell_period = f"{swp} sec"
-                if swd and swd not in ["MM", "-"]:
-                    buoy_dir = swd
-except Exception:
-    pass
+            headers = [h.get_text(strip=True).lower() for h in rows[0].find_all(["th", "td"])]
+            values = [v.get_text(strip=True) for v in rows[1].find_all("td")]
+
+            def get(col):
+                if col in headers:
+                    return values[headers.index(col)]
+                return None
+
+            wvht = get("wvht") or get("wvht (ft)") or get("wvht (m)")
+            swh  = get("swh") or get("swh (ft)") or get("swh (m)")
+            swp  = get("swp") or get("swp (s)")
+            swd  = get("swd") or get("swd (deg)")
+
+            if wvht and wvht not in ["MM", "-", ""]:
+                sig_height = f"{wvht} ft" if "m" not in wvht else f"{wvht} m"
+
+            if swh and swh not in ["MM", "-", ""]:
+                swell_height = f"{swh} ft" if "m" not in swh else f"{swh} m"
+
+            if swp and swp not in ["MM", "-", ""]:
+                swell_period = f"{swp} sec"
+
+            if swd and swd not in ["MM", "-", ""]:
+                buoy_dir = swd
+
+except Exception as e:
+    print("Buoy parse error:", e)
+
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation (fixed, safe, guaranteed output)

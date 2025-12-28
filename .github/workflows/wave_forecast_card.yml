@@ -6,16 +6,16 @@ on:
   workflow_dispatch:
 
 jobs:
-  generate-and-commit:
+  generate-and-update:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (full history)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Important: full history for proper commits
+          fetch-depth: 0  # Ensures git history for proper commits
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,15 +28,23 @@ jobs:
       - name: Generate card
         run: python generate_wave_card.py
 
-      - name: Debug - check if file exists
-        run: ls -la wave_card.png || echo "File not created!"
+      - name: Verify card file exists
+        run: |
+          if [ -f wave_card.png ]; then
+            echo "Card generated successfully!"
+            ls -la wave_card.png
+            du -h wave_card.png
+          else
+            echo "ERROR: wave_card.png NOT generated - script failed silently"
+            exit 1
+          fi
 
-      - name: Commit and push changes
+      - name: Commit and force-push the image
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
-          git add wave_card.png
+          git add wave_card.png || true
           git status
-          git diff --staged
-          git commit -m "Update wave forecast card [auto]" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref_name }} --force-with-lease || echo "Push skipped"
+          git diff --staged || echo "No diff"
+          git commit -m "Update wave forecast card [auto]" --allow-empty || echo "Commit skipped (no change)"
+          git push origin HEAD:${{ github.ref_name }} --force-with-lease || echo "Push failed - check branch/permissions"

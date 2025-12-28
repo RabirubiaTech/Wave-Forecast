@@ -73,68 +73,72 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (realtime2, header-based)
+# PART 2: Fetch Current Buoy 41043 Data (latest valid spectral data)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
 try:
-    url = "https://www.ndbc.noaa.gov/data/realtime2/41043.txt"
+    url = "https://www.ndbc.noaa.gov/data/spec/41043.spec"
     r = requests.get(url, timeout=15)
     r.raise_for_status()
 
     lines = r.text.splitlines()
 
-    header_tokens = None
-    data_line = None
+    header = None
+    rows = []
 
-    # Find header (#YY ...) and first data line after it
     for ln in lines:
         if ln.startswith("#YY"):
-            header_tokens = ln.lstrip("#").split()
+            header = ln.lstrip("#").split()
             continue
-        if header_tokens and not ln.startswith("#") and ln.strip():
-            data_line = ln
-            break
+        if header and ln.strip() and not ln.startswith("#"):
+            parts = ln.split()
+            if len(parts) >= len(header):
+                rows.append(parts)
 
-    if header_tokens and data_line:
-        parts = data_line.split()
+    if header and rows:
+        # Convert rows into dicts with timestamps
+        parsed = []
+        for parts in rows:
+            row = {header[i]: parts[i] for i in range(len(header))}
 
-        # Helper: get index of a column by name
-        def idx(name):
+            # Skip invalid rows
+            if row.get("WVHT") in ["MM", "99.00"]:
+                continue
+
+            # Build datetime for sorting
             try:
-                return header_tokens.index(name)
-            except ValueError:
-                return None
-
-        i_wvht = idx("WVHT")   # significant wave height (m)
-        i_dpd  = idx("DPD")    # dominant wave period (s)
-        i_mwd  = idx("MWD")    # mean wave direction (degT)
-
-        wvht = parts[i_wvht] if i_wvht is not None and i_wvht < len(parts) else None
-        dpd  = parts[i_dpd]  if i_dpd  is not None and i_dpd  < len(parts) else None
-        mwd  = parts[i_mwd]  if i_mwd  is not None and i_mwd  < len(parts) else None
-
-        def m_to_ft(m):
-            try:
-                return round(float(m) * 3.28084, 1)
+                ts = datetime(
+                    int(row["YY"]),
+                    int(row["MM"]),
+                    int(row["DD"]),
+                    int(row["hh"]),
+                    int(row["mm"])
+                )
+                parsed.append((ts, row))
             except:
-                return None
+                continue
 
-        # WVHT is in meters in realtime2 files
-        if wvht and wvht not in ["MM", "99.00"]:
-            h_ft = m_to_ft(wvht)
-            if h_ft is not None:
-                sig_height = f"{h_ft} ft"
-                swell_height = f"{h_ft} ft"  # no separate SwH in realtime2; spec file has that
+        # Sort by timestamp descending → newest first
+        parsed.sort(key=lambda x: x[0], reverse=True)
 
-        if dpd and dpd not in ["MM", "99"]:
-            swell_period = f"{dpd} sec"
+        if parsed:
+            latest_row = parsed[0][1]
 
-        if mwd and mwd not in ["MM", "999"]:
-            buoy_dir = f"{mwd}°"
+            wvht = latest_row.get("WVHT")  # significant wave height (m)
+            swh  = latest_row.get("SwH")   # swell height (m)
+            swp  = latest_row.get("SwP")   # swell period (s)
+            swd  = latest_row.get("SwD")   # swell direction (deg)
 
-except Exception as e:
-    print("Buoy parse error:", e)
+            def m_to_ft(m):
+                try:
+                    return round(float(m) * 3.28084, 1)
+                except:
+                    return None
+
+            # Sig height
+            if wvht and wvht not in ["MM", "99.00"]:
+                sig
 
 
 # ─────────────────────────────────────────────────────────────

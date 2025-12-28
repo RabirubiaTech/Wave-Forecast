@@ -73,7 +73,8 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Reverted to last good working 41043 parsing (with current fallback)
+# PART 2: Reverted to last good working 41043 parsing + current fallback
+# (this combo worked when values were real; now hardened for changes)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -83,53 +84,48 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    table = None
-
-    # Strategy 1: Old reliable (when it worked) - cellpadding='5'
+    # Priority: Try old successful way (high columns)
     table = buoy_soup.find('table', {'cellpadding': '5'})
+    use_old_columns = bool(table)
 
-    # Strategy 2: Fallback - table with WVHT or "Significant Wave Height"
+    # If old way fails, try modern way
     if not table:
         for tbl in buoy_soup.find_all("table"):
-            tbl_text = tbl.get_text()
-            if "WVHT" in tbl_text or "Significant Wave Height" in tbl_text:
+            if "WVHT" in tbl.get_text() or "Significant Wave Height" in tbl.get_text():
                 table = tbl
+                use_old_columns = False
                 break
 
-    # Strategy 3: Last resort - largest table with many rows
-    if not table:
-        tables = buoy_soup.find_all("table")
-        if tables:
-            table = max(tables, key=lambda t: len(t.find_all("tr")))
-
     if table:
-        rows = table.find_all("tr")
+        rows = table.find_all('tr')
         if len(rows) >= 2:
-            # Try old successful indices first (when it pulled data)
-            cols = rows[1].find_all("td")
-            if len(cols) > 11:
+            cols = rows[1].find_all('td')  # latest row
+            if use_old_columns and len(cols) > 11:
+                # Last good working indices
                 wvht = cols[8].get_text(strip=True)
                 swh  = cols[10].get_text(strip=True)
                 swp  = cols[11].get_text(strip=True)
                 swd  = cols[12].get_text(strip=True) if len(cols) > 12 else "N/A"
-            else:
+            elif len(cols) >= 5:
                 # Current structure fallback
-                if len(cols) >= 5:
-                    wvht = cols[1].get_text(strip=True)
-                    swh  = cols[2].get_text(strip=True)
-                    swp  = cols[3].get_text(strip=True)
-                    swd  = cols[4].get_text(strip=True)
+                wvht = cols[1].get_text(strip=True)
+                swh  = cols[2].get_text(strip=True)
+                swp  = cols[3].get_text(strip=True)
+                swd  = cols[4].get_text(strip=True)
+            else:
+                wvht = swh = swp = swd = ""
 
-            if 'wvht' in locals() and wvht and wvht not in ["MM", "-"]:
+            # Apply values only if valid
+            if wvht and wvht not in ["MM", "-", ""]:
                 sig_height = f"{wvht} ft"
-            if 'swh' in locals() and swh and swh not in ["MM", "-"]:
+            if swh and swh not in ["MM", "-", ""]:
                 swell_height = f"{swh} ft"
-            if 'swp' in locals() and swp and swp not in ["MM", "-"]:
+            if swp and swp not in ["MM", "-", ""]:
                 swell_period = f"{swp} sec"
-            if 'swd' in locals() and swd and swd not in ["MM", "-"]:
+            if swd and swd not in ["MM", "-", ""]:
                 buoy_dir = swd
 except Exception:
-    pass
+    pass  # stay N/A on error
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation

@@ -338,7 +338,7 @@ draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, spacing
 # -------------------------------------------------------------
 # BUOY 41043 BOX (moved further upward)
 # -------------------------------------------------------------
-buoy1_y_title = 600        # was 650
+buoy1_y_title = 560        # was 600
 buoy1_y_value = buoy1_y_title + 35
 
 draw.rectangle([(60, buoy1_y_title - 20), (740, buoy1_y_value + 80)], fill=(0, 20, 60, 140))
@@ -365,6 +365,7 @@ buoy_text_56 = f"Sig: {sig_height_56} | Swell: {swell_height_56} | {swell_period
 draw.text((80, buoy2_y_value), buoy_text_56, fill=sig_color_56, font=font_buoy)
 
 draw.text((80, buoy2_y_value + 35), f"Last updated: {last_update_56}", fill="#ffffff", font=font_footer)
+
 
 # -------------------------------------------------------------
 # FOOTER

@@ -370,7 +370,7 @@ draw.text((80, buoy2_y_value + 35), f"Last updated: {last_update_56}", fill="#ff
 # -------------------------------------------------------------
 # FOOTER
 # -------------------------------------------------------------
-draw.text((400, 880), "RabirubiaWeather.com • Auto-updated", fill=TEXT, font=font_footer, anchor="mm")
+draw.text((400, 880), "RabirubiaWeather.com • Updated every 4 hours", fill=TEXT, font=font_footer, anchor="mm")
 
 card.convert("RGB").save("wave_card.png", optimize=True)
 print("DEBUG: Card saved successfully as wave_card.png")

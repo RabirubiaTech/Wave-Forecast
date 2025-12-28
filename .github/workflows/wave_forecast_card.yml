@@ -1,4 +1,4 @@
-name: Update Wave Forecast Card Image
+name: Update Wave Forecast Card
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  generate-and-commit-image:
+  generate-and-commit:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -14,27 +14,29 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Important: full history for proper commits
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Install Python dependencies
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pillow
+
+      - name: Generate card
+        run: python generate_wave_card.py
+
+      - name: Debug - check if file exists
+        run: ls -la wave_card.png || echo "File not created!"
+
+      - name: Commit and push changes
         run: |
-          pip install pillow requests beautifulsoup4
-
-      - name: Generate Wave Forecast Card
-        run: python generate_wave_card.py   # ← must match the file name exactly!
-
-      - name: Commit and push updated image
-        run: |
-          if [ ! -f wave_card.png ]; then
-            echo "ERROR: wave_card.png not found"
-            exit 1
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
           git add wave_card.png
-          git commit -m "Auto-update wave forecast card + current Buoy 41043 data" || echo "No changes to commit"
-          git push
+          git status
+          git diff --staged
+          git commit -m "Update wave forecast card [auto]" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref_name }} --force-with-lease || echo "Push skipped"

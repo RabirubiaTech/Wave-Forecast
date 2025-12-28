@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (last good working version)
+# PART 2: Fetch Current Buoy 41043 Data – last good working logic (high columns)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 try:
@@ -97,7 +97,28 @@ try:
                     swell_period = f"{swp} sec"
                     break
     else:
-        sig_height = swell_height = swell_period = "N/A"
+        # Fallback if cellpadding missing – use table with "WVHT" or size check
+        for tbl in soup.find_all('table'):
+            if "WVHT" in tbl.get_text() or len(tbl.find_all('tr')) > 5:
+                table = tbl
+                break
+        if table:
+            rows = table.find_all("tr")
+            if len(rows) >= 2:
+                cols = rows[1].find_all("td")
+                if len(cols) >= 5:
+                    wvht = cols[1].get_text(strip=True)
+                    swh = cols[2].get_text(strip=True)
+                    swp = cols[3].get_text(strip=True)
+                    swd = cols[4].get_text(strip=True)
+                    if wvht and wvht not in ["MM", "-"]:
+                        sig_height = f"{wvht} ft"
+                    if swh and swh not in ["MM", "-"]:
+                        swell_height = f"{swh} ft"
+                    if swp and swp not in ["MM", "-"]:
+                        swell_period = f"{swp} sec"
+                    if swd and swd not in ["MM", "-"]:
+                        buoy_dir = swd
 except Exception:
     pass
 
@@ -177,4 +198,5 @@ draw.text(
     font=font_footer,
     anchor="mm"
 )
+
 card.convert("RGB").save("wave_card.png", optimize=True)

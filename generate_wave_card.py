@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (stable)
+# PART 2: Reverted to last good working 41043 parsing (with fallback)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -83,32 +83,48 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    table = None
-    for tbl in buoy_soup.find_all("table"):
-        if "WVHT" in tbl.get_text():
-            table = tbl
-            break
+    # First try old reliable way (cellpadding='5')
+    table = buoy_soup.find('table', {'cellpadding': '5'})
+
+    # Fallback if cellpadding missing: take the table with WVHT or many rows
+    if not table:
+        for tbl in buoy_soup.find_all("table"):
+            if "WVHT" in tbl.get_text() or len(tbl.find_all("tr")) > 5:
+                table = tbl
+                break
 
     if table:
-        rows = table.find_all("tr")
-        if len(rows) >= 2:
-            cols = rows[1].find_all("td")
-            if len(cols) >= 5:
+        rows = table.find_all('tr')
+        for row in rows[1:]:  # skip header
+            cols = row.find_all('td')
+            if len(cols) > 10:  # old structure check
+                wvht = cols[8].get_text(strip=True)   # Significant Wave Height
+                swh  = cols[10].get_text(strip=True)  # Swell Height
+                swp  = cols[11].get_text(strip=True)  # Swell Period
+                if wvht and wvht != 'MM':
+                    sig_height = f"{wvht} ft"
+                if swh and swh != 'MM':
+                    swell_height = f"{swh} ft"
+                if swp and swp != 'MM':
+                    swell_period = f"{swp} sec"
+                buoy_dir = "NNW"  # typical fallback; can be parsed if needed
+                break
+            elif len(cols) >= 5:  # fallback to current structure
                 wvht = cols[1].get_text(strip=True)
                 swh  = cols[2].get_text(strip=True)
                 swp  = cols[3].get_text(strip=True)
                 swd  = cols[4].get_text(strip=True)
-
-                if wvht and wvht not in ["MM", "-"]:
+                if wvht and wvht != 'MM':
                     sig_height = f"{wvht} ft"
-                if swh and swh not in ["MM", "-"]:
+                if swh and swh != 'MM':
                     swell_height = f"{swh} ft"
-                if swp and swp not in ["MM", "-"]:
+                if swp and swp != 'MM':
                     swell_period = f"{swp} sec"
-                if swd and swd not in ["MM", "-"]:
+                if swd and swd != 'MM':
                     buoy_dir = swd
+                break
 except Exception:
-    pass
+    pass  # stay N/A on failure
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation

@@ -217,7 +217,7 @@ except Exception as e:
     print("DEBUG: Font load failed, using default fonts:", e)
     font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
-TEXT = "#0a1a2f"
+TEXT = "#000000"   # pure black for maximum contrast
 GRAY = "#aaaaaa"
 
 # Header

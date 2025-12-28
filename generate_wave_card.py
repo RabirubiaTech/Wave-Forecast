@@ -77,7 +77,7 @@ except Exception as e:
     print("Forecast parsing ERROR:", str(e))
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Buoy 41043 – CORRECT current parsing
+# PART 2: Buoy 41043 – FIXED table selection & parsing
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -91,14 +91,19 @@ try:
 
     table = None
     for tbl in buoy_soup.find_all("table"):
-        if "WVHT" in tbl.get_text():
-            table = tbl
-            break
+        tbl_text = tbl.get_text()
+        if "WVHT" in tbl_text or "Significant Wave Height" in tbl_text:
+            # Extra check: look for table with many columns/rows (main obs table)
+            if len(tbl.find_all("tr")) > 5 and len(tbl.find_all("td")) > 20:  # rough size filter
+                table = tbl
+                break
 
     if table:
         rows = table.find_all("tr")
+        print("Selected table rows:", len(rows))
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")
+            cols = rows[1].find_all("td")  # latest row
+            print("Columns in latest row:", len(cols))
             if len(cols) >= 5:
                 wvht = cols[1].get_text(strip=True)
                 swh  = cols[2].get_text(strip=True)
@@ -113,15 +118,13 @@ try:
                     swell_period = f"{swp} sec"
                 if swd and swd not in ["MM", "-"]:
                     buoy_dir = swd
-                print("Buoy parsed OK:", sig_height, swell_height, swell_period, buoy_dir)
+                print("Buoy data extracted:", sig_height, swell_height, swell_period, buoy_dir)
             else:
-                print("Buoy table columns too few:", len(cols))
-        else:
-            print("Buoy table rows too few:", len(rows))
+                print("Too few columns in selected table")
     else:
-        print("No wave table found with WVHT")
+        print("No matching wave table found")
 except Exception as e:
-    print("Buoy fetch/parsing ERROR:", str(e))
+    print("Buoy fetch error:", str(e))
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation – with debug

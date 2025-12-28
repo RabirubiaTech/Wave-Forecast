@@ -95,9 +95,9 @@ try:
             cols = rows[1].find_all("td")
             if len(cols) >= 5:
                 wvht = cols[1].get_text(strip=True)
-                swh = cols[2].get_text(strip=True)
-                swp = cols[3].get_text(strip=True)
-                swd = cols[4].get_text(strip=True)
+                swh  = cols[2].get_text(strip=True)
+                swp  = cols[3].get_text(strip=True)
+                swd  = cols[4].get_text(strip=True)
 
                 if wvht and wvht not in ["MM", "-"]:
                     sig_height = f"{wvht} ft"
@@ -111,7 +111,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: Image Generation – adjusted margins & font sizes for forecast text
+# PART 3: Image Generation
 # ─────────────────────────────────────────────────────────────
 try:
     bg_data = requests.get(
@@ -120,9 +120,9 @@ try:
     ).content
     bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
 except Exception:
-    bg = Image.new("RGB", (800, 1000), "#004488")  # Increased height
+    bg = Image.new("RGB", (800, 950), "#004488")
 
-bg = bg.resize((800, 1000))
+bg = bg.resize((800, 950))
 enhancer = ImageEnhance.Brightness(bg)
 bg = enhancer.enhance(1.12)
 
@@ -141,14 +141,14 @@ try:
 except Exception:
     pass
 
-# Fonts – smaller body font for forecast text
+# Fonts
 try:
     font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
     font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body     = ImageFont.truetype("DejaVuSans.ttf", 22)  # ← REDUCED from 28 to 22
+    font_body     = ImageFont.truetype("DejaVuSans.ttf", 28)
     font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
-    font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 18)
+    font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 22)
 except Exception:
     font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
@@ -161,18 +161,11 @@ draw.text((400, 220), "(Forecast starting from TODAY - Real-time current below)"
 
 draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
-# Forecast text – better margins & spacing
-draw.multiline_text(
-    (100, 300),              # ← shifted right from 80 → 100 for better left margin
-    forecast_text,
-    fill=TEXT,
-    font=font_body,
-    align="left",
-    spacing=28               # ← increased spacing for readability
-)
+# Forecast text
+draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=12)
 
-# Bottom section: Current Buoy 41043 (unchanged – already fits well)
-buoy_y_title = 700
+# Bottom section: Current Buoy 41043
+buoy_y_title = 700  # Increase to 740–780 if overlap occurs
 buoy_y_value = buoy_y_title + 35
 
 draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
@@ -183,6 +176,6 @@ draw.text((80, buoy_y_value), buoy_text, fill="#a0d0ff", font=font_buoy)
 
 # Footer
 footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
-draw.text((400, 930), footer_line, fill=TEXT, font=font_footer, anchor="mm")  # shifted down slightly
+draw.text((400, 880), footer_line, fill=TEXT, font=font_footer, anchor="mm")
 
 card.convert("RGB").save("wave_card.png", optimize=True)

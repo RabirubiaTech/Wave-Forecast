@@ -11,7 +11,6 @@ print("DEBUG: Starting PART 1")
 # PART 1: Fetch & Parse AMZ726 Forecast (robust + safe fallback)
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
-ZONE = "AMZ726"  # use actual marine zone code string, not just 726
 FALLBACK = "Wave forecast temporarily unavailable."
 
 forecast_text = FALLBACK
@@ -21,22 +20,19 @@ try:
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # NOAA often puts the forecast in <pre> or plain text; this is robust enough
     page_text = soup.get_text("\n")
 
-    # Try to locate the block that starts with the zone name (AMZ726) and goes until the next AMZ7xx
-    pattern = r"(AMZ726[\s\S]*?)(AMZ7\d{2}\b|$$)"
+    # Block for AMZ726 until next AMZ7xx or end
+    pattern = r"(AMZ726[\s\S]*?)(AMZ7\d{2}\b|$)"
     m = re.search(pattern, page_text, re.IGNORECASE)
     if m:
         block = m.group(1)
         block = block.replace("feet", "ft")
         lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
 
-        # Remove the first line if it's just the zone header
         if lines and lines[0].upper().startswith("AMZ726"):
             lines = lines[1:]
 
-        # Simple segmenting into forecast periods by common labels
         periods = []
         current_label = None
         current_text = []
@@ -71,18 +67,15 @@ try:
 
         final_lines = []
         for label, txt in cleaned:
-            # Try to extract "Wave Detail:" if present
             wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$)", txt, re.IGNORECASE | re.DOTALL)
             if wave_match:
                 detail = wave_match.group(1).strip()
                 final_lines.append(f"{label}: {detail}")
             else:
-                # Fallback to general seas if present
                 seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*ft", txt, re.IGNORECASE)
                 if seas_match:
-                    final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match.group(2)} ft")
+                    final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match(2)} ft")
                 else:
-                    # Last-resort short text
                     short = txt.replace("\n", " ")
                     if len(short) > 90:
                         short = short[:90] + "..."
@@ -100,9 +93,11 @@ print("DEBUG: Forecast text preview:", forecast_text.splitlines()[0] if forecast
 print("DEBUG: Starting PART 2")
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data
-#   1) Try spectral file 41043.data_spec (WVHT + SwH + SwP + SwD)
-#   2) Fallback to realtime2 41043.txt (WVHT + DPD + MWD)
+# PART 2: Fetch Current Buoy 41043 Data from realtime2
+#   - Spectral files for 41043 are gone (404)
+#   - Use realtime2/41043.txt
+#   - Scan backwards to find latest non-MM WVHT (and DPD/MWD)
+#   - Use WVHT as Sig + Swell
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -112,138 +107,91 @@ def m_to_ft(m):
     except Exception:
         return None
 
-# First: try spectral data
 try:
-    url_spec = "https://www.ndbc.noaa.gov/data/spec/41043.data_spec"
-    r_spec = requests.get(url_spec, timeout=15)
-    r_spec.raise_for_status()
+    url_rt = "https://www.ndbc.noaa.gov/data/realtime2/41043.txt"
+    r_rt = requests.get(url_rt, timeout=15)
+    r_rt.raise_for_status()
+    lines_rt = r_rt.text.splitlines()
 
-    lines = r_spec.text.splitlines()
+    header_tokens = None
+    data_rows = []
 
-    header = None
-    rows = []
-
-    for ln in lines:
+    for ln in lines_rt:
         if ln.startswith("#YY"):
-            header = ln.lstrip("#").split()
+            header_tokens = ln.lstrip("#").split()
             continue
+        if header_tokens and not ln.startswith("#") and ln.strip():
+            data_rows.append(ln)
 
-        if header and ln.strip() and not ln.startswith("#"):
-            parts = ln.split()
-            if len(parts) < len(header):
-                continue
-            rows.append(parts)
+    if header_tokens and data_rows:
+        print("DEBUG: Realtime2 header:", header_tokens)
 
-    if header and rows:
-        parsed = []
-
-        for parts in rows:
-            row = {header[i]: parts[i] for i in range(len(header))}
+        # Build index map
+        def idx(name):
             try:
-                ts = datetime(
-                    int(row.get("YY", "0")),
-                    int(row.get("MM", "0")),
-                    int(row.get("DD", "0")),
-                    int(row.get("hh", "0")),
-                    int(row.get("mm", "0"))
-                )
-                parsed.append((ts, row))
+                return header_tokens.index(name)
+            except ValueError:
+                return None
+
+        i_yy   = idx("YY")
+        i_mm   = idx("MM")
+        i_dd   = idx("DD")
+        i_hh   = idx("hh")
+        i_min  = idx("mm")
+        i_wvht = idx("WVHT")
+        i_dpd  = idx("DPD")
+        i_mwd  = idx("MWD")
+
+        parsed_rows = []
+
+        for ln in data_rows:
+            parts = ln.split()
+            try:
+                # Basic timestamp for ordering
+                yy  = int(parts[i_yy])   if i_yy  is not None and i_yy  < len(parts) else 0
+                mm  = int(parts[i_mm])   if i_mm  is not None and i_mm  < len(parts) else 0
+                dd  = int(parts[i_dd])   if i_dd  is not None and i_dd  < len(parts) else 0
+                hh  = int(parts[i_hh])   if i_hh  is not None and i_hh  < len(parts) else 0
+                mns = int(parts[i_min])  if i_min is not None and i_min < len(parts) else 0
+                ts = datetime(yy, mm, dd, hh, mns)
             except Exception:
                 continue
 
-        parsed.sort(key=lambda x: x[0], reverse=True)
+            parsed_rows.append((ts, parts))
 
-        if parsed:
-            latest = parsed[0][1]
+        parsed_rows.sort(key=lambda x: x[0], reverse=True)
 
-            wvht = latest.get("WVHT")  # m
-            swh  = latest.get("SwH")   # m
-            swp  = latest.get("SwP")   # s
-            swd  = latest.get("SwD")   # deg
-
-            # Significant height
-            if wvht and wvht not in ["MM", "99.00"]:
-                h_ft = m_to_ft(wvht)
-                if h_ft is not None:
-                    sig_height = f"{h_ft} ft"
-
-            # Swell height
-            if swh and swh not in ["MM", "99.00"]:
-                swh_ft = m_to_ft(swh)
-                if swh_ft is not None:
-                    swell_height = f"{swh_ft} ft"
-            elif sig_height != "N/A":
-                # Fallback: use significant height if swell not provided
-                swell_height = sig_height
-
-            # Swell period
-            if swp and swp not in ["MM", "99"]:
-                swell_period = f"{swp} sec"
-
-            # Swell direction
-            if swd and swd not in ["MM", "999"]:
-                buoy_dir = f"{swd}°"
-
-    print("DEBUG: PART 2 used spectral data")
-
-except Exception as e:
-    print("DEBUG: PART 2 spectral error, will try realtime2:", e)
-
-    # Fallback: realtime2 text file
-    try:
-        url_rt = "https://www.ndbc.noaa.gov/data/realtime2/41043.txt"
-        r_rt = requests.get(url_rt, timeout=15)
-        r_rt.raise_for_status()
-        lines_rt = r_rt.text.splitlines()
-
-        header_tokens = None
-        data_line = None
-
-        for ln in lines_rt:
-            if ln.startswith("#YY"):
-                header_tokens = ln.lstrip("#").split()
-                print("DEBUG: Realtime2 header:", header_tokens)
-
-                continue
-            if header_tokens and not ln.startswith("#") and ln.strip():
-                data_line = ln
-                print("DEBUG: Realtime2 first data row:", data_line)
-
+        chosen = None
+        for ts, parts in parsed_rows:
+            wvht_val = parts[i_wvht] if i_wvht is not None and i_wvht < len(parts) else None
+            if wvht_val and wvht_val not in ["MM", "99.00"]:
+                chosen = (ts, parts)
                 break
 
-        if header_tokens and data_line:
-            parts = data_line.split()
+        if chosen:
+            ts, parts = chosen
+            print("DEBUG: Chosen realtime2 row:", " ".join(parts))
 
-            def idx(name):
-                try:
-                    return header_tokens.index(name)
-                except ValueError:
-                    return None
+            wvht_val = parts[i_wvht] if i_wvht is not None and i_wvht < len(parts) else None
+            dpd_val  = parts[i_dpd]  if i_dpd  is not None and i_dpd  < len(parts) else None
+            mwd_val  = parts[i_mwd]  if i_mwd  is not None and i_mwd  < len(parts) else None
 
-            i_wvht = idx("WVHT")
-            i_dpd  = idx("DPD")
-            i_mwd  = idx("MWD")
-
-            wvht = parts[i_wvht] if i_wvht is not None and i_wvht < len(parts) else None
-            dpd  = parts[i_dpd] if i_dpd is not None and i_dpd < len(parts) else None
-            mwd  = parts[i_mwd] if i_mwd is not None and i_mwd < len(parts) else None
-
-            if wvht and wvht not in ["MM", "99.00"]:
-                h_ft = m_to_ft(wvht)
+            if wvht_val and wvht_val not in ["MM", "99.00"]:
+                h_ft = m_to_ft(wvht_val)
                 if h_ft is not None:
                     sig_height = f"{h_ft} ft"
-                    swell_height = sig_height
+                    swell_height = sig_height  # no separate SwH in realtime2
 
-            if dpd and dpd not in ["MM", "99"]:
-                swell_period = f"{dpd} sec"
+            if dpd_val and dpd_val not in ["MM", "99"]:
+                swell_period = f"{dpd_val} sec"
 
-            if mwd and mwd not in ["MM", "999"]:
-                buoy_dir = f"{mwd}°"
+            if mwd_val and mwd_val not in ["MM", "999"]:
+                buoy_dir = f"{mwd_val}°"
+        else:
+            print("DEBUG: No valid WVHT row found in realtime2")
 
-        print("DEBUG: PART 2 used realtime2 fallback")
-
-    except Exception as e2:
-        print("DEBUG: PART 2 realtime2 error:", e2)
+except Exception as e:
+    print("DEBUG: PART 2 error:", e)
 
 print("DEBUG: Finished PART 2:", sig_height, swell_height, swell_period, buoy_dir)
 

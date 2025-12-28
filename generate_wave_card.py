@@ -134,6 +134,10 @@ try:
 except Exception:
     pass
 
+print("Table found with WVHT:", bool(table))
+if table and len(rows) >= 2:
+    print("Latest row columns:", [c.get_text(strip=True) for c in rows[1].find_all("td")])
+
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation
 # ─────────────────────────────────────────────────────────────
